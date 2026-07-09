@@ -52,6 +52,88 @@ class ColorControlViewModelTest {
     }
 
     @Test
+    fun sliderEditsPersistActiveAndSavedCustomProfiles() {
+        val store = InMemoryProfileStore()
+        val viewModel = ColorControlViewModel(
+            backend = FakeBackend(applyResult = BackendResult.Success),
+            profileStore = store,
+            liveApplyScope = testScope(),
+            applyDispatcher = Dispatchers.Unconfined,
+        )
+
+        viewModel.setGreen(0.42f)
+
+        val expected = ColorProfile.custom(
+            red = ColorProfiles.Red.red,
+            green = 0.42f,
+            blue = ColorProfiles.Red.blue,
+        )
+        assertEquals(expected, store.savedProfile)
+        assertEquals(expected, store.savedCustomProfile)
+    }
+
+    @Test
+    fun selectingPresetAfterCustomDoesNotOverwriteSavedCustomProfile() {
+        val store = InMemoryProfileStore()
+        val viewModel = ColorControlViewModel(
+            backend = FakeBackend(applyResult = BackendResult.Success),
+            profileStore = store,
+            liveApplyScope = testScope(),
+            applyDispatcher = Dispatchers.Unconfined,
+        )
+
+        viewModel.setGreen(0.42f)
+        val savedCustom = store.savedCustomProfile
+
+        viewModel.selectProfile(ColorProfiles.Deep)
+
+        assertEquals(ColorProfiles.Deep, store.savedProfile)
+        assertEquals(savedCustom, store.savedCustomProfile)
+    }
+
+    @Test
+    fun customButtonRestoresSavedCustomAfterPresetChainAndAppliesIt() {
+        val savedCustom = ColorProfile.custom(red = 0.8f, green = 0.3f, blue = 0.1f)
+        val store = InMemoryProfileStore(savedCustomProfile = savedCustom)
+        val backend = FakeBackend(applyResult = BackendResult.Success)
+        val viewModel = ColorControlViewModel(
+            backend = backend,
+            profileStore = store,
+            liveApplyScope = testScope(),
+            applyDispatcher = Dispatchers.Unconfined,
+        )
+
+        viewModel.selectProfile(ColorProfiles.Warm)
+        viewModel.selectProfile(ColorProfiles.Deep)
+        viewModel.enableCustomMode()
+
+        assertEquals(savedCustom, viewModel.uiState.value.selected)
+        assertEquals(savedCustom, store.savedProfile)
+        assertEquals(savedCustom, store.savedCustomProfile)
+        assertEquals(savedCustom, backend.appliedProfile)
+    }
+
+    @Test
+    fun customButtonWithoutSavedCustomAppliesCurrentProfile() {
+        val store = InMemoryProfileStore()
+        val backend = FakeBackend(applyResult = BackendResult.Success)
+        val viewModel = ColorControlViewModel(
+            backend = backend,
+            profileStore = store,
+            liveApplyScope = testScope(),
+            applyDispatcher = Dispatchers.Unconfined,
+        )
+
+        viewModel.selectProfile(ColorProfiles.Deep)
+        viewModel.enableCustomMode()
+
+        assertEquals(ColorProfiles.Deep, viewModel.uiState.value.selected)
+        assertEquals(ColorProfiles.Deep, store.savedProfile)
+        assertEquals(null, store.savedCustomProfile)
+        assertEquals(ColorProfiles.Deep, backend.appliedProfile)
+    }
+
+    @Test
     fun inactiveMatrixStartsInClassicSafeModeWithControlsDisabled() {
         val viewModel = ColorControlViewModel(
             backend = FakeBackend(
@@ -395,13 +477,19 @@ class ColorControlViewModelTest {
 
     private class InMemoryProfileStore(
         var savedInversionEnabled: Boolean = false,
+        var savedProfile: ColorProfile? = null,
+        var savedCustomProfile: ColorProfile? = null,
     ) : ProfileStore {
-        var savedProfile: ColorProfile? = null
-
         override fun load(): ColorProfile? = savedProfile
 
         override fun save(profile: ColorProfile) {
             savedProfile = profile
+        }
+
+        override fun loadCustom(): ColorProfile? = savedCustomProfile
+
+        override fun saveCustom(profile: ColorProfile) {
+            savedCustomProfile = ColorProfile.custom(profile.red, profile.green, profile.blue)
         }
 
         override fun loadInversionEnabled(): Boolean = savedInversionEnabled

@@ -7,6 +7,8 @@ import com.jeff.tclcolorcontrol.color.ColorProfiles
 interface ProfileStore {
     fun load(): ColorProfile?
     fun save(profile: ColorProfile)
+    fun loadCustom(): ColorProfile?
+    fun saveCustom(profile: ColorProfile)
     fun loadInversionEnabled(): Boolean
     fun saveInversionEnabled(enabled: Boolean)
 }
@@ -36,6 +38,29 @@ class SharedPreferencesProfileStore(
             .apply()
     }
 
+    override fun loadCustom(): ColorProfile? {
+        val red = preferences.getFloat(KEY_CUSTOM_RED, Float.NaN)
+        val green = preferences.getFloat(KEY_CUSTOM_GREEN, Float.NaN)
+        val blue = preferences.getFloat(KEY_CUSTOM_BLUE, Float.NaN)
+        if (!red.isNaN() && !green.isNaN() && !blue.isNaN()) {
+            return ColorProfile.custom(red, green, blue)
+        }
+
+        if (preferences.getString(KEY_ID, null) == CUSTOM_PROFILE_ID) {
+            return load()
+        }
+        return null
+    }
+
+    override fun saveCustom(profile: ColorProfile) {
+        val customProfile = ColorProfile.custom(profile.red, profile.green, profile.blue)
+        preferences.edit()
+            .putFloat(KEY_CUSTOM_RED, customProfile.red)
+            .putFloat(KEY_CUSTOM_GREEN, customProfile.green)
+            .putFloat(KEY_CUSTOM_BLUE, customProfile.blue)
+            .apply()
+    }
+
     override fun loadInversionEnabled(): Boolean =
         preferences.getBoolean(KEY_INVERSION_ENABLED, false)
 
@@ -51,6 +76,10 @@ class SharedPreferencesProfileStore(
         const val KEY_RED = "red"
         const val KEY_GREEN = "green"
         const val KEY_BLUE = "blue"
+        const val KEY_CUSTOM_RED = "custom_red"
+        const val KEY_CUSTOM_GREEN = "custom_green"
+        const val KEY_CUSTOM_BLUE = "custom_blue"
         const val KEY_INVERSION_ENABLED = "inversion_enabled"
+        const val CUSTOM_PROFILE_ID = "custom"
     }
 }

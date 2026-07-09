@@ -85,7 +85,7 @@ class ColorControlViewModel(
     }
 
     fun selectProfile(profile: ColorProfile) {
-        profileStore.save(profile)
+        saveActiveProfile(profile)
         val shouldApply = _uiState.value.controlsEnabled
         _uiState.update {
             it.copy(
@@ -105,7 +105,7 @@ class ColorControlViewModel(
     fun applyProfileId(profileId: String) {
         ColorProfiles.byId(profileId)?.let { profile ->
             selectProfile(profile)
-            enableCustomMode()
+            enableCustomMatrix(profile, status = "Enabling custom matrix")
         }
     }
 
@@ -121,7 +121,7 @@ class ColorControlViewModel(
             val operationVersion = nextColorOperationVersion()
             val result = applyProfileOperation(profile, _uiState.value.inversionEnabled)
             if (!isCurrentColorOperation(operationVersion)) return@launch
-            profileStore.save(profile)
+            saveActiveProfile(profile)
             refreshAfter(result, successMessage = "Applied ${profile.label}")
         }
     }
@@ -133,13 +133,24 @@ class ColorControlViewModel(
     }
 
     fun enableCustomMode() {
+        val customProfile = profileStore.loadCustom()
+        val profile = customProfile ?: _uiState.value.selected
+        saveActiveProfile(profile)
+        enableCustomMatrix(
+            profile = profile,
+            status = if (customProfile == null) "Enabling custom matrix" else "Restoring Custom",
+        )
+    }
+
+    private fun enableCustomMatrix(profile: ColorProfile, status: String) {
         _uiState.update {
             it.copy(
+                selected = profile,
                 controlMode = ControlMode.CustomMatrix,
-                status = "Enabling custom matrix",
+                status = status,
             )
         }
-        queueLiveApply(_uiState.value.selected, immediate = true)
+        queueLiveApply(profile, immediate = true)
     }
 
     fun setInversionEnabled(enabled: Boolean) {
@@ -155,7 +166,7 @@ class ColorControlViewModel(
             if (!isCurrentColorOperation(operationVersion)) return@launch
             if (result == BackendResult.Success) {
                 profileStore.saveInversionEnabled(enabled)
-                profileStore.save(profile)
+                saveActiveProfile(profile)
                 _uiState.update {
                     it.copy(
                         inversionEnabled = enabled,
@@ -265,7 +276,7 @@ class ColorControlViewModel(
     ) {
         val profile = ColorProfile.custom(red, green, blue)
         val shouldApply = _uiState.value.controlsEnabled
-        profileStore.save(profile)
+        saveActiveProfile(profile)
         _uiState.update {
             it.copy(
                 selected = profile,
@@ -274,6 +285,13 @@ class ColorControlViewModel(
         }
         if (shouldApply) {
             queueLiveApply(profile, immediate = false)
+        }
+    }
+
+    private fun saveActiveProfile(profile: ColorProfile) {
+        profileStore.save(profile)
+        if (profile.id == CUSTOM_PROFILE_ID) {
+            profileStore.saveCustom(profile)
         }
     }
 
@@ -294,7 +312,7 @@ class ColorControlViewModel(
         if (!isCurrentColorOperation(operationVersion)) return
         val result = applyLiveProfileOperation(profile) ?: return
         if (!isCurrentColorOperation(operationVersion)) return
-        profileStore.save(profile)
+        saveActiveProfile(profile)
         refreshAfter(
             result = result,
             successMessage = if (_uiState.value.inversionEnabled) {
@@ -468,6 +486,7 @@ private fun initialState(
     )
 
 private const val DEFAULT_BRIGHTNESS = 1f
+private const val CUSTOM_PROFILE_ID = "custom"
 
 private fun BackendCapabilities.toControlMode(): ControlMode =
     when (activationState) {
