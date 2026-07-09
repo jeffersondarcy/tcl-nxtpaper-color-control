@@ -1,18 +1,29 @@
 package com.jeff.tclcolorcontrol.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DragIndicator
+import androidx.compose.material.icons.filled.InvertColors
+import androidx.compose.material.icons.filled.Minimize
+import androidx.compose.material.icons.filled.OpenInFull
 import androidx.compose.material3.Button
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconToggleButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
@@ -28,6 +39,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -55,8 +76,9 @@ fun ColorControlScreen(
     onEnableCustom: () -> Unit,
     onSwitchClassic: () -> Unit,
     onRestore: () -> Unit,
-    panelPositionLabel: String,
-    onCyclePanelPosition: () -> Unit,
+    onMovePanel: (Float, Float) -> Unit,
+    onMovePanelFinished: () -> Unit,
+    onPanelSizeChanged: (Int, Int) -> Unit,
     showAddTile: Boolean,
     onAddTile: () -> Unit,
     onDismiss: () -> Unit,
@@ -67,14 +89,28 @@ fun ColorControlScreen(
 
     Surface(
         modifier = modifier
-            .widthIn(min = 320.dp, max = 520.dp)
-            .padding(10.dp),
+            .widthIn(min = if (isCollapsed) 232.dp else 320.dp, max = 520.dp)
+            .padding(10.dp)
+            .onSizeChanged { onPanelSizeChanged(it.width, it.height) },
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
         contentColor = MaterialTheme.colorScheme.onSurface,
         tonalElevation = 6.dp,
         shadowElevation = 10.dp,
         shape = RoundedCornerShape(8.dp),
     ) {
+        if (isCollapsed) {
+            MinimizedPanel(
+                inversionEnabled = state.inversionEnabled,
+                inversionControlEnabled = state.inversionControlEnabled,
+                onInversionChange = onInversionChange,
+                onMovePanel = onMovePanel,
+                onMovePanelFinished = onMovePanelFinished,
+                onExpand = { isCollapsed = false },
+                onDismiss = onDismiss,
+            )
+            return@Surface
+        }
+
         Column(
             modifier = Modifier
                 .verticalScroll(rememberScrollState())
@@ -82,68 +118,65 @@ fun ColorControlScreen(
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             Header(
-                isCollapsed = isCollapsed,
-                panelPositionLabel = panelPositionLabel,
                 selectedProfileLabel = state.selected.label,
-                onCyclePanelPosition = onCyclePanelPosition,
-                onToggleCollapsed = { isCollapsed = !isCollapsed },
+                onMovePanel = onMovePanel,
+                onMovePanelFinished = onMovePanelFinished,
+                onMinimize = { isCollapsed = true },
                 onDismiss = onDismiss,
             )
-            if (!isCollapsed) {
-                ModeControls(
-                    mode = state.controlMode,
-                    onEnableCustom = onEnableCustom,
-                    onSwitchClassic = onSwitchClassic,
-                )
-                Presets(
-                    presets = state.presets,
-                    selected = state.selected,
-                    enabled = state.controlsEnabled,
-                    onSelectProfile = onSelectProfile,
-                )
-                ChannelSlider("Red", state.selected.red, ChannelRed, state.controlsEnabled, onRedChange, onSliderFinished)
-                ChannelSlider("Green", state.selected.green, ChannelGreen, state.controlsEnabled, onGreenChange, onSliderFinished)
-                ChannelSlider("Blue", state.selected.blue, ChannelBlue, state.controlsEnabled, onBlueChange, onSliderFinished)
-                DisplayControls(
-                    inversionEnabled = state.inversionEnabled,
-                    inversionControlEnabled = state.inversionControlEnabled,
-                    autoBrightness = state.autoBrightness,
-                    brightness = state.brightness,
-                    canWriteSystemSettings = state.capabilities.canWriteSystemSettings,
-                    brightnessControlsEnabled = state.brightnessControlsEnabled,
-                    onInversionChange = onInversionChange,
-                    onAutoBrightnessChange = onAutoBrightnessChange,
-                    onBrightnessChange = onBrightnessChange,
-                    onBrightnessFinished = onBrightnessFinished,
-                    onGrantSystemSettings = onGrantSystemSettings,
-                )
-                Actions(
-                    showAddTile = showAddTile,
-                    onAddTile = onAddTile,
-                    onRestore = onRestore,
-                )
-                Details(
-                    expanded = detailsExpanded,
-                    onToggle = { detailsExpanded = !detailsExpanded },
-                    state = state,
-                )
-            }
+            ModeControls(
+                mode = state.controlMode,
+                onEnableCustom = onEnableCustom,
+                onSwitchClassic = onSwitchClassic,
+            )
+            Presets(
+                presets = state.presets,
+                selected = state.selected,
+                enabled = state.controlsEnabled,
+                onSelectProfile = onSelectProfile,
+            )
+            ChannelSlider("Red", state.selected.red, ChannelRed, state.controlsEnabled, onRedChange, onSliderFinished)
+            ChannelSlider("Green", state.selected.green, ChannelGreen, state.controlsEnabled, onGreenChange, onSliderFinished)
+            ChannelSlider("Blue", state.selected.blue, ChannelBlue, state.controlsEnabled, onBlueChange, onSliderFinished)
+            DisplayControls(
+                inversionEnabled = state.inversionEnabled,
+                inversionControlEnabled = state.inversionControlEnabled,
+                autoBrightness = state.autoBrightness,
+                brightness = state.brightness,
+                canWriteSystemSettings = state.capabilities.canWriteSystemSettings,
+                brightnessControlsEnabled = state.brightnessControlsEnabled,
+                onInversionChange = onInversionChange,
+                onAutoBrightnessChange = onAutoBrightnessChange,
+                onBrightnessChange = onBrightnessChange,
+                onBrightnessFinished = onBrightnessFinished,
+                onGrantSystemSettings = onGrantSystemSettings,
+            )
+            Actions(
+                showAddTile = showAddTile,
+                onAddTile = onAddTile,
+                onRestore = onRestore,
+            )
+            Details(
+                expanded = detailsExpanded,
+                onToggle = { detailsExpanded = !detailsExpanded },
+                state = state,
+            )
         }
     }
 }
 
 @Composable
 private fun Header(
-    isCollapsed: Boolean,
-    panelPositionLabel: String,
     selectedProfileLabel: String,
-    onCyclePanelPosition: () -> Unit,
-    onToggleCollapsed: () -> Unit,
+    onMovePanel: (Float, Float) -> Unit,
+    onMovePanelFinished: () -> Unit,
+    onMinimize: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.Top,
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
@@ -152,40 +185,140 @@ private fun Header(
                 fontWeight = FontWeight.SemiBold,
             )
             Text(
-                text = headerSubtitle(
-                    isCollapsed = isCollapsed,
-                    selectedProfileLabel = selectedProfileLabel,
-                    panelPositionLabel = panelPositionLabel,
-                ),
+                text = headerSubtitle(selectedProfileLabel),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         Row(
-            modifier = Modifier.width(176.dp),
             horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            TextButton(onClick = onCyclePanelPosition) {
-                Text("Move")
+            DragHandle(
+                onMovePanel = onMovePanel,
+                onMovePanelFinished = onMovePanelFinished,
+            )
+            IconButton(onClick = onMinimize) {
+                Icon(
+                    imageVector = Icons.Filled.Minimize,
+                    contentDescription = "Minimize",
+                )
             }
-            TextButton(onClick = onToggleCollapsed) {
-                Text(if (isCollapsed) "Show" else "Hide")
-            }
-            TextButton(onClick = onDismiss) {
-                Text("Close")
+            IconButton(onClick = onDismiss) {
+                Icon(
+                    imageVector = Icons.Filled.Close,
+                    contentDescription = "Close",
+                )
             }
         }
     }
 }
 
-private fun headerSubtitle(
-    isCollapsed: Boolean,
-    selectedProfileLabel: String,
-    panelPositionLabel: String,
-): String {
-    val modeLabel = if (isCollapsed) selectedProfileLabel else "Live compositor profile"
-    return "$modeLabel / $panelPositionLabel"
+@Composable
+private fun MinimizedPanel(
+    inversionEnabled: Boolean,
+    inversionControlEnabled: Boolean,
+    onInversionChange: (Boolean) -> Unit,
+    onMovePanel: (Float, Float) -> Unit,
+    onMovePanelFinished: () -> Unit,
+    onExpand: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        DragHandle(
+            onMovePanel = onMovePanel,
+            onMovePanelFinished = onMovePanelFinished,
+        )
+        IconToggleButton(
+            checked = inversionEnabled,
+            enabled = inversionControlEnabled,
+            onCheckedChange = onInversionChange,
+        ) {
+            Icon(
+                imageVector = Icons.Filled.InvertColors,
+                contentDescription = if (inversionEnabled) "Turn inversion off" else "Turn inversion on",
+                tint = if (inversionEnabled) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+            )
+        }
+        IconButton(onClick = onExpand) {
+            Icon(
+                imageVector = Icons.Filled.OpenInFull,
+                contentDescription = "Expand",
+            )
+        }
+        IconButton(onClick = onDismiss) {
+            Icon(
+                imageVector = Icons.Filled.Close,
+                contentDescription = "Close",
+            )
+        }
+    }
 }
+
+@Composable
+private fun DragHandle(
+    onMovePanel: (Float, Float) -> Unit,
+    onMovePanelFinished: () -> Unit,
+) {
+    val accessibilityStepPx = with(LocalDensity.current) { 64.dp.toPx() }
+    fun movePanelForAccessibility(deltaX: Float, deltaY: Float): Boolean {
+        onMovePanel(deltaX, deltaY)
+        onMovePanelFinished()
+        return true
+    }
+
+    Box(
+        modifier = Modifier
+            .size(48.dp)
+            .semantics {
+                contentDescription = "Move panel"
+                role = Role.Button
+                onClick(label = "Move panel right") {
+                    movePanelForAccessibility(accessibilityStepPx, 0f)
+                }
+                customActions = listOf(
+                    CustomAccessibilityAction("Move panel left") {
+                        movePanelForAccessibility(-accessibilityStepPx, 0f)
+                    },
+                    CustomAccessibilityAction("Move panel right") {
+                        movePanelForAccessibility(accessibilityStepPx, 0f)
+                    },
+                    CustomAccessibilityAction("Move panel up") {
+                        movePanelForAccessibility(0f, -accessibilityStepPx)
+                    },
+                    CustomAccessibilityAction("Move panel down") {
+                        movePanelForAccessibility(0f, accessibilityStepPx)
+                    },
+                )
+            }
+            .pointerInput(Unit) {
+                detectDragGestures(
+                    onDragEnd = onMovePanelFinished,
+                    onDragCancel = onMovePanelFinished,
+                ) { _, dragAmount ->
+                    onMovePanel(dragAmount.x, dragAmount.y)
+                }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = Icons.Filled.DragIndicator,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+private fun headerSubtitle(selectedProfileLabel: String): String =
+    "Live compositor profile / $selectedProfileLabel"
 
 @Composable
 private fun ModeControls(
@@ -482,8 +615,9 @@ private fun ColorControlScreenPreview() {
             onEnableCustom = {},
             onSwitchClassic = {},
             onRestore = {},
-            panelPositionLabel = "Top",
-            onCyclePanelPosition = {},
+            onMovePanel = { _, _ -> },
+            onMovePanelFinished = {},
+            onPanelSizeChanged = { _, _ -> },
             showAddTile = true,
             onAddTile = {},
             onDismiss = {},
