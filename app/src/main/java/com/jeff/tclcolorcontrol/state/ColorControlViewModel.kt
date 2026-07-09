@@ -20,7 +20,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicLong
 
 data class ColorControlUiState(
     val selected: ColorProfile = ColorProfiles.Red,
@@ -59,9 +62,12 @@ class ColorControlViewModel(
     liveApplyScope: CoroutineScope? = null,
     private val applyDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val liveApplyDelayMillis: Long = LIVE_APPLY_DELAY_MILLIS,
+    private val postInversionReapplyDelayMillis: Long = POST_INVERSION_REAPPLY_DELAY_MILLIS,
 ) : ViewModel() {
     private val liveRequests = Channel<LiveApplyRequest>(Channel.CONFLATED)
     private val scope = liveApplyScope ?: viewModelScope
+    private val colorOperationMutex = Mutex()
+    private val colorOperationVersion = AtomicLong()
 
     private val _uiState = MutableStateFlow(
         initialState(
@@ -110,9 +116,14 @@ class ColorControlViewModel(
     fun setBlue(value: Float) = updateCustom(blue = value.clampChannel())
 
     fun applyCurrent() {
-        val result = backend.apply(_uiState.value.selected, _uiState.value.inversionEnabled)
-        profileStore.save(_uiState.value.selected)
-        refreshAfter(result, successMessage = "Applied ${_uiState.value.selected.label}")
+        scope.launch {
+            val profile = _uiState.value.selected
+            val operationVersion = nextColorOperationVersion()
+            val result = applyProfileOperation(profile, _uiState.value.inversionEnabled)
+            if (!isCurrentColorOperation(operationVersion)) return@launch
+            profileStore.save(profile)
+            refreshAfter(result, successMessage = "Applied ${profile.label}")
+        }
     }
 
     fun finishSliderChange() {
@@ -134,14 +145,14 @@ class ColorControlViewModel(
     fun setInversionEnabled(enabled: Boolean) {
         scope.launch {
             val profile = _uiState.value.selected
+            val operationVersion = nextColorOperationVersion()
             _uiState.update {
                 it.copy(
                     status = if (enabled) "Applying inverted profile" else "Applying normal profile",
                 )
             }
-            val result = withContext(applyDispatcher) {
-                backend.apply(profile, enabled)
-            }
+            val result = applyProfileOperation(profile, enabled)
+            if (!isCurrentColorOperation(operationVersion)) return@launch
             if (result == BackendResult.Success) {
                 profileStore.saveInversionEnabled(enabled)
                 profileStore.save(profile)
@@ -157,6 +168,12 @@ class ColorControlViewModel(
                 successMessage = if (enabled) "Inverted ${profile.label}" else "Normal ${profile.label}",
                 forceMode = if (result == BackendResult.Success) ControlMode.CustomMatrix else null,
             )
+            if (result == BackendResult.Success) {
+                schedulePostInversionReapply(
+                    expectedInversion = enabled,
+                    operationVersion = operationVersion,
+                )
+            }
         }
     }
 
@@ -205,10 +222,10 @@ class ColorControlViewModel(
 
     fun switchToClassicSafeMode() {
         scope.launch {
+            val operationVersion = nextColorOperationVersion()
             _uiState.update { it.copy(status = "Turning custom matrix off") }
-            val result = withContext(applyDispatcher) {
-                backend.restoreBaseline()
-            }
+            val result = restoreBaselineOperation()
+            if (!isCurrentColorOperation(operationVersion)) return@launch
             refreshAfter(
                 result = result,
                 successMessage = "Custom matrix off; TCL Classic keys unchanged",
@@ -218,23 +235,27 @@ class ColorControlViewModel(
     }
 
     fun restoreBaseline() {
-        val result = backend.restoreBaseline()
-        if (result == BackendResult.Success) {
-            profileStore.save(ColorProfiles.Baseline)
-            profileStore.saveInversionEnabled(false)
-            _uiState.update {
-                it.copy(
-                    selected = ColorProfiles.Baseline,
-                    inversionEnabled = false,
-                    controlMode = ControlMode.ClassicSafe,
-                )
+        scope.launch {
+            val operationVersion = nextColorOperationVersion()
+            val result = restoreBaselineOperation()
+            if (!isCurrentColorOperation(operationVersion)) return@launch
+            if (result == BackendResult.Success) {
+                profileStore.save(ColorProfiles.Baseline)
+                profileStore.saveInversionEnabled(false)
+                _uiState.update {
+                    it.copy(
+                        selected = ColorProfiles.Baseline,
+                        inversionEnabled = false,
+                        controlMode = ControlMode.ClassicSafe,
+                    )
+                }
             }
+            refreshAfter(
+                result = result,
+                successMessage = "Baseline restored",
+                forceMode = if (result == BackendResult.Success) ControlMode.ClassicSafe else null,
+            )
         }
-        refreshAfter(
-            result = result,
-            successMessage = "Baseline restored",
-            forceMode = if (result == BackendResult.Success) ControlMode.ClassicSafe else null,
-        )
     }
 
     private fun updateCustom(
@@ -265,25 +286,115 @@ class ColorControlViewModel(
             while (true) {
                 latest = liveRequests.tryReceive().getOrNull() ?: break
             }
-            applyLiveProfile(latest.profile)
+            applyLiveProfile(latest.profile, latest.operationVersion)
         }
     }
 
-    private suspend fun applyLiveProfile(profile: ColorProfile) {
-        val inverted = _uiState.value.inversionEnabled
-        val result = withContext(applyDispatcher) {
-            backend.apply(profile, inverted)
-        }
+    private suspend fun applyLiveProfile(profile: ColorProfile, operationVersion: Long) {
+        if (!isCurrentColorOperation(operationVersion)) return
+        val result = applyLiveProfileOperation(profile) ?: return
+        if (!isCurrentColorOperation(operationVersion)) return
         profileStore.save(profile)
         refreshAfter(
             result = result,
-            successMessage = if (inverted) "Live inverted ${profile.label}" else "Live ${profile.label}",
+            successMessage = if (_uiState.value.inversionEnabled) {
+                "Live inverted ${profile.label}"
+            } else {
+                "Live ${profile.label}"
+            },
             forceMode = ControlMode.CustomMatrix,
         )
     }
 
     private fun queueLiveApply(profile: ColorProfile, immediate: Boolean) {
-        liveRequests.trySend(LiveApplyRequest(profile, immediate))
+        liveRequests.trySend(
+            LiveApplyRequest(
+                profile = profile,
+                immediate = immediate,
+                operationVersion = nextColorOperationVersion(),
+            )
+        )
+    }
+
+    private fun schedulePostInversionReapply(
+        expectedInversion: Boolean,
+        operationVersion: Long,
+    ) {
+        scope.launch {
+            delay(postInversionReapplyDelayMillis)
+            if (!isCurrentColorOperation(operationVersion)) return@launch
+            val state = _uiState.value
+            if (state.inversionEnabled != expectedInversion || state.controlMode != ControlMode.CustomMatrix) {
+                return@launch
+            }
+            val result = applyProfileOperationIfCurrent(expectedInversion, operationVersion)
+            if (result != null && result !is BackendResult.Success) {
+                refreshFailureIfCurrent(result, operationVersion)
+            }
+        }
+    }
+
+    private suspend fun applyProfileOperation(profile: ColorProfile, inverted: Boolean): BackendResult =
+        withContext(applyDispatcher) {
+            colorOperationMutex.withLock {
+                backend.apply(profile, inverted)
+            }
+        }
+
+    private suspend fun applyLiveProfileOperation(profile: ColorProfile): BackendResult? =
+        withContext(applyDispatcher) {
+            colorOperationMutex.withLock {
+                val state = _uiState.value
+                if (state.controlMode != ControlMode.CustomMatrix || state.selected != profile) {
+                    null
+                } else {
+                    backend.apply(profile, state.inversionEnabled)
+                }
+            }
+        }
+
+    private suspend fun applyProfileOperationIfCurrent(
+        expectedInversion: Boolean,
+        operationVersion: Long,
+    ): BackendResult? =
+        withContext(applyDispatcher) {
+            colorOperationMutex.withLock {
+                val state = _uiState.value
+                if (
+                    !isCurrentColorOperation(operationVersion) ||
+                    state.inversionEnabled != expectedInversion ||
+                    state.controlMode != ControlMode.CustomMatrix
+                ) {
+                    null
+                } else {
+                    backend.apply(state.selected, state.inversionEnabled)
+                }
+            }
+        }
+
+    private suspend fun restoreBaselineOperation(): BackendResult =
+        withContext(applyDispatcher) {
+            colorOperationMutex.withLock {
+                backend.restoreBaseline()
+            }
+        }
+
+    private fun nextColorOperationVersion(): Long =
+        colorOperationVersion.incrementAndGet()
+
+    private fun isCurrentColorOperation(operationVersion: Long): Boolean =
+        colorOperationVersion.get() == operationVersion
+
+    private fun refreshFailureIfCurrent(result: BackendResult, operationVersion: Long) {
+        if (!isCurrentColorOperation(operationVersion)) return
+        val capabilities = backend.getCapabilities()
+        _uiState.update {
+            it.copy(
+                capabilities = capabilities,
+                inversionEnabled = capabilities.displaySnapshot.colorInversionEnabled ?: it.inversionEnabled,
+                status = result.toStatusMessage("Custom profile reapplied"),
+            )
+        }
     }
 
     private fun refreshAfter(
@@ -311,6 +422,7 @@ class ColorControlViewModel(
 
     private companion object {
         const val LIVE_APPLY_DELAY_MILLIS = 40L
+        const val POST_INVERSION_REAPPLY_DELAY_MILLIS = 1_000L
         val BRIGHTNESS_RANGE = 0f..1f
     }
 }
@@ -338,6 +450,7 @@ private fun BackendResult.toStatusMessage(successMessage: String): String =
 private data class LiveApplyRequest(
     val profile: ColorProfile,
     val immediate: Boolean,
+    val operationVersion: Long,
 )
 
 private fun initialState(

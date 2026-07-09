@@ -58,19 +58,35 @@ class AndroidColorBackend(
 
     override fun apply(profile: ColorProfile, inverted: Boolean): BackendResult {
         val binder = findTclBinder() ?: return BackendResult.BinderUnavailable
-        val matrixResult = binder.callSetSurfaceFlingerMatrix(profile.toMatrix())
-        if (matrixResult !is BackendResult.Success) return matrixResult
+        val matrix = profile.toMatrix()
 
-        return if (canWriteSecureSettings()) {
-            val activationResult = putSecureInt(TCL_COLOR_TEMPERATURE_ACTIVATED, 1)
-            if (activationResult !is BackendResult.Success) {
-                activationResult
+        if (!canWriteSecureSettings()) {
+            val matrixResult = binder.callSetSurfaceFlingerMatrix(matrix)
+            return if (matrixResult is BackendResult.Success) {
+                BackendResult.PermissionMissing
             } else {
-                putSecureInt(ACCESSIBILITY_DISPLAY_INVERSION_ENABLED, if (inverted) 1 else 0)
+                matrixResult
             }
-        } else {
-            BackendResult.PermissionMissing
         }
+
+        val previousActivationValue = getSecureInt(TCL_COLOR_TEMPERATURE_ACTIVATED)
+        val previousInversionValue = getSecureInt(ACCESSIBILITY_DISPLAY_INVERSION_ENABLED)
+        val activationResult = putSecureInt(TCL_COLOR_TEMPERATURE_ACTIVATED, 1)
+        if (activationResult !is BackendResult.Success) return activationResult
+
+        val desiredInversionValue = if (inverted) 1 else 0
+        val inversionResult = putSecureInt(ACCESSIBILITY_DISPLAY_INVERSION_ENABLED, desiredInversionValue)
+        if (inversionResult !is BackendResult.Success) {
+            restoreSecureInt(TCL_COLOR_TEMPERATURE_ACTIVATED, previousActivationValue)
+            return inversionResult
+        }
+
+        val matrixResult = binder.callSetSurfaceFlingerMatrix(matrix)
+        if (matrixResult !is BackendResult.Success) {
+            restoreSecureInt(ACCESSIBILITY_DISPLAY_INVERSION_ENABLED, previousInversionValue)
+            restoreSecureInt(TCL_COLOR_TEMPERATURE_ACTIVATED, previousActivationValue)
+        }
+        return matrixResult
     }
 
     override fun setBrightness(value: Float): BackendResult {
@@ -167,6 +183,16 @@ class AndroidColorBackend(
         }.getOrElse { error ->
             BackendResult.Failed(error.message ?: error.javaClass.simpleName)
         }
+
+    private fun restoreSecureInt(name: String, value: Int?) {
+        runCatching {
+            if (value == null) {
+                Settings.Secure.putString(context.contentResolver, name, null)
+            } else {
+                Settings.Secure.putInt(context.contentResolver, name, value)
+            }
+        }
+    }
 
     private fun putSystemInt(name: String, value: Int): BackendResult =
         runCatching {
