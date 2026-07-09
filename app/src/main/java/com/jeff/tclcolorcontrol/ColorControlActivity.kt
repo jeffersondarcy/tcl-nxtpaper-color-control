@@ -26,6 +26,7 @@ import com.jeff.tclcolorcontrol.ui.TclColorControlTheme
 class ColorControlActivity : ComponentActivity() {
     private val panelPositionState = mutableStateOf(PanelPosition.TopCenter)
     private val tileKnownAddedState = mutableStateOf(false)
+    private val quickEntryState = mutableStateOf(false)
 
     private val viewModel: ColorControlViewModel by viewModels {
         ColorControlViewModelFactory(
@@ -39,6 +40,7 @@ class ColorControlActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         panelPositionState.value = loadPanelPosition()
         tileKnownAddedState.value = QuickSettingsTilePrompt.isKnownAdded(this)
+        quickEntryState.value = intent.isQuickEntry()
         configureDialogWindow(panelPositionState.value)
         handleIntent(intent)
 
@@ -62,13 +64,13 @@ class ColorControlActivity : ComponentActivity() {
                     onRestore = viewModel::restoreBaseline,
                     panelPositionLabel = panelPositionState.value.label,
                     onCyclePanelPosition = ::cyclePanelPosition,
-                    showAddTile = !tileKnownAddedState.value,
+                    showAddTile = !quickEntryState.value && !tileKnownAddedState.value,
                     onAddTile = { requestQuickSettingsTile(auto = false) },
                     onDismiss = ::finish,
                 )
             }
         }
-        if (intent.getBooleanExtra(EXTRA_FROM_TILE, false).not()) {
+        if (!quickEntryState.value) {
             window.decorView.post {
                 requestQuickSettingsTile(auto = true)
             }
@@ -83,6 +85,7 @@ class ColorControlActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        quickEntryState.value = intent.isQuickEntry()
         handleIntent(intent)
     }
 
@@ -174,7 +177,11 @@ class ColorControlActivity : ComponentActivity() {
 
     private fun Int.dpToPx(): Int = (this * resources.displayMetrics.density).toInt()
 
+    private fun Intent?.isQuickEntry(): Boolean =
+        this?.getBooleanExtra(EXTRA_FROM_TILE, false) == true || this?.action == ACTION_OPEN_PANEL
+
     companion object {
+        const val ACTION_OPEN_PANEL = "com.jeff.tclcolorcontrol.action.OPEN_PANEL"
         const val EXTRA_PROFILE = "profile"
         const val EXTRA_APPLY = "apply"
         const val EXTRA_RESTORE = "restore"

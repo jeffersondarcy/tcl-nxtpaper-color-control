@@ -32,6 +32,7 @@ class ColorControlTileService : TileService() {
 
     private fun launchColorControl() {
         val intent = Intent(this, ColorControlActivity::class.java)
+            .setAction(ColorControlActivity.ACTION_OPEN_PANEL)
             .addFlags(
                 Intent.FLAG_ACTIVITY_NEW_TASK or
                     Intent.FLAG_ACTIVITY_CLEAR_TASK or
