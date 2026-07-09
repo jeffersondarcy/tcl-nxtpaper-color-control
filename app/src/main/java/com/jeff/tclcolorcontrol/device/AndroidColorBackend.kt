@@ -58,19 +58,25 @@ class AndroidColorBackend(
 
     override fun apply(profile: ColorProfile, inverted: Boolean): BackendResult {
         val binder = findTclBinder() ?: return BackendResult.BinderUnavailable
-        val matrixResult = binder.callSetSurfaceFlingerMatrix(profile.toMatrix())
-        if (matrixResult !is BackendResult.Success) return matrixResult
+        val matrix = profile.toMatrix()
 
-        return if (canWriteSecureSettings()) {
-            val activationResult = putSecureInt(TCL_COLOR_TEMPERATURE_ACTIVATED, 1)
-            if (activationResult !is BackendResult.Success) {
-                activationResult
+        if (!canWriteSecureSettings()) {
+            val matrixResult = binder.callSetSurfaceFlingerMatrix(matrix)
+            return if (matrixResult is BackendResult.Success) {
+                BackendResult.PermissionMissing
             } else {
-                putSecureInt(ACCESSIBILITY_DISPLAY_INVERSION_ENABLED, if (inverted) 1 else 0)
+                matrixResult
             }
-        } else {
-            BackendResult.PermissionMissing
         }
+
+        val activationResult = putSecureInt(TCL_COLOR_TEMPERATURE_ACTIVATED, 1)
+        if (activationResult !is BackendResult.Success) return activationResult
+
+        val desiredInversionValue = if (inverted) 1 else 0
+        val inversionResult = putSecureInt(ACCESSIBILITY_DISPLAY_INVERSION_ENABLED, desiredInversionValue)
+        if (inversionResult !is BackendResult.Success) return inversionResult
+
+        return binder.callSetSurfaceFlingerMatrix(matrix)
     }
 
     override fun setBrightness(value: Float): BackendResult {

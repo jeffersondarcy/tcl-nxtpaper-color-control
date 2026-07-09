@@ -59,6 +59,7 @@ class ColorControlViewModel(
     liveApplyScope: CoroutineScope? = null,
     private val applyDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val liveApplyDelayMillis: Long = LIVE_APPLY_DELAY_MILLIS,
+    private val postInversionReapplyDelayMillis: Long = POST_INVERSION_REAPPLY_DELAY_MILLIS,
 ) : ViewModel() {
     private val liveRequests = Channel<LiveApplyRequest>(Channel.CONFLATED)
     private val scope = liveApplyScope ?: viewModelScope
@@ -151,6 +152,7 @@ class ColorControlViewModel(
                         controlMode = ControlMode.CustomMatrix,
                     )
                 }
+                schedulePostInversionReapply(expectedInversion = enabled)
             }
             refreshAfter(
                 result = result,
@@ -286,6 +288,19 @@ class ColorControlViewModel(
         liveRequests.trySend(LiveApplyRequest(profile, immediate))
     }
 
+    private fun schedulePostInversionReapply(expectedInversion: Boolean) {
+        scope.launch {
+            delay(postInversionReapplyDelayMillis)
+            val state = _uiState.value
+            if (state.inversionEnabled != expectedInversion || state.controlMode != ControlMode.CustomMatrix) {
+                return@launch
+            }
+            withContext(applyDispatcher) {
+                backend.apply(state.selected, state.inversionEnabled)
+            }
+        }
+    }
+
     private fun refreshAfter(
         result: BackendResult,
         successMessage: String,
@@ -311,6 +326,7 @@ class ColorControlViewModel(
 
     private companion object {
         const val LIVE_APPLY_DELAY_MILLIS = 40L
+        const val POST_INVERSION_REAPPLY_DELAY_MILLIS = 1_000L
         val BRIGHTNESS_RANGE = 0f..1f
     }
 }

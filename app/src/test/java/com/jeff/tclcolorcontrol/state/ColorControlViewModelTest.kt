@@ -127,6 +127,24 @@ class ColorControlViewModelTest {
     }
 
     @Test
+    fun togglingInversionReappliesCurrentProfileAfterDisplayModeSettles() {
+        val backend = FakeBackend(applyResult = BackendResult.Success)
+        val viewModel = ColorControlViewModel(
+            backend = backend,
+            profileStore = InMemoryProfileStore(),
+            liveApplyScope = testScope(),
+            applyDispatcher = Dispatchers.Unconfined,
+            postInversionReapplyDelayMillis = 0L,
+        )
+
+        viewModel.setInversionEnabled(true)
+
+        assertEquals(2, backend.applyCount)
+        assertEquals(ColorProfiles.Red, backend.appliedProfile)
+        assertTrue(backend.appliedInverted)
+    }
+
+    @Test
     fun changingProfileWhileInvertedAppliesInvertedProfile() {
         val store = InMemoryProfileStore(savedInversionEnabled = true)
         val backend = FakeBackend(applyResult = BackendResult.Success)
@@ -294,6 +312,7 @@ class ColorControlViewModelTest {
     ) : ColorBackend {
         var appliedProfile: ColorProfile? = null
         var appliedInverted: Boolean = false
+        var applyCount: Int = 0
         var brightness: Float? = capabilities.displaySnapshot.brightness
         var writtenBrightness: Float? = null
         var autoBrightnessEnabled: Boolean? = capabilities.displaySnapshot.autoBrightness
@@ -305,6 +324,7 @@ class ColorControlViewModelTest {
         override fun readDisplaySnapshot(): DisplaySnapshot = capabilities.displaySnapshot
 
         override fun apply(profile: ColorProfile, inverted: Boolean): BackendResult {
+            applyCount += 1
             appliedProfile = profile
             appliedInverted = inverted
             if (applyResult == BackendResult.Success) {
