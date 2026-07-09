@@ -81,8 +81,6 @@ fun ColorControlScreen(
     onMovePanel: (Float, Float) -> Unit,
     onMovePanelFinished: () -> Unit,
     onPanelSizeChanged: (Int, Int) -> Unit,
-    showAddTile: Boolean,
-    onAddTile: () -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -153,8 +151,6 @@ fun ColorControlScreen(
                 onGrantSystemSettings = onGrantSystemSettings,
             )
             Actions(
-                showAddTile = showAddTile,
-                onAddTile = onAddTile,
                 onRestore = onRestore,
             )
             Details(
@@ -501,19 +497,9 @@ private fun ToggleRow(
 
 @Composable
 private fun Actions(
-    showAddTile: Boolean,
-    onAddTile: () -> Unit,
     onRestore: () -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (showAddTile) {
-            Button(
-                onClick = onAddTile,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text("Add QS tile")
-            }
-        }
         OutlinedButton(
             onClick = onRestore,
             modifier = Modifier.fillMaxWidth(),
@@ -621,8 +607,6 @@ private fun ColorControlScreenPreview() {
             onMovePanel = { _, _ -> },
             onMovePanelFinished = {},
             onPanelSizeChanged = { _, _ -> },
-            showAddTile = true,
-            onAddTile = {},
             onDismiss = {},
         )
     }

@@ -11,6 +11,7 @@ import androidx.activity.ComponentActivity
 class ColorControlActivity : ComponentActivity() {
     private var requestedOverlayPermission = false
     private var pendingEntryIntent: Intent? = null
+    private var tilePromptInProgress = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -37,11 +38,40 @@ class ColorControlActivity : ComponentActivity() {
         if (Settings.canDrawOverlays(this)) {
             requestedOverlayPermission = false
             pendingEntryIntent = null
-            showOverlay(entryIntent)
+            showOverlayAfterOptionalTilePrompt(entryIntent)
+        } else if (requestedOverlayPermission) {
+            pendingEntryIntent = null
+            Toast.makeText(
+                this,
+                "Display over other apps is required for the floating color panel",
+                Toast.LENGTH_LONG,
+            ).show()
+            finish()
         } else {
             requestOverlayPermission()
         }
     }
+
+    private fun showOverlayAfterOptionalTilePrompt(intent: Intent?) {
+        if (!shouldAutoPromptForTile(intent)) {
+            showOverlay(intent)
+            return
+        }
+        tilePromptInProgress = true
+        QuickSettingsTilePrompt.requestAddTile(this) {
+            QuickSettingsTilePrompt.markAutoPrompted(this)
+            tilePromptInProgress = false
+            if (!isFinishing && !isDestroyed) {
+                showOverlay(intent)
+            }
+        }
+    }
+
+    private fun shouldAutoPromptForTile(intent: Intent?): Boolean =
+        !tilePromptInProgress &&
+            !intent.isQuickEntry() &&
+            !QuickSettingsTilePrompt.isKnownAdded(this) &&
+            !QuickSettingsTilePrompt.wasAutoPrompted(this)
 
     private fun showOverlay(intent: Intent?) {
         val serviceIntent = ColorControlOverlayService.showExpandedIntent(this, intent)
@@ -77,3 +107,7 @@ class ColorControlActivity : ComponentActivity() {
         const val EXTRA_FROM_TILE = "from_tile"
     }
 }
+
+private fun Intent?.isQuickEntry(): Boolean =
+    this?.getBooleanExtra(ColorControlActivity.EXTRA_FROM_TILE, false) == true ||
+        this?.action == ColorControlActivity.ACTION_OPEN_PANEL

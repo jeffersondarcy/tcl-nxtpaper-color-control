@@ -88,6 +88,28 @@ class PanelWindowPositionerTest {
     }
 
     @Test
+    fun legacyPositionKeyCreatesStartPositionWhenNoExactPositionExists() {
+        assertEquals(
+            PanelWindowCoordinates(884, 528),
+            PanelWindowPositioner.fromLegacyPositionKey(
+                positionKey = "bottom_right",
+                bounds = bounds,
+                topOffsetPx = 72,
+                endOffsetPx = 16,
+            ),
+        )
+        assertEquals(
+            null,
+            PanelWindowPositioner.fromLegacyPositionKey(
+                positionKey = "unknown",
+                bounds = bounds,
+                topOffsetPx = 72,
+                endOffsetPx = 16,
+            ),
+        )
+    }
+
+    @Test
     fun exactSavedPositionCanBeClampedWithoutUsingLegacyAnchor() {
         val saved = PanelWindowCoordinates(240, 320)
 

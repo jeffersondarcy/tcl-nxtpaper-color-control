@@ -33,6 +33,27 @@ enum class PanelWindowAnchor {
 }
 
 object PanelWindowPositioner {
+    fun fromLegacyPositionKey(
+        positionKey: String?,
+        bounds: PanelWindowBounds,
+        topOffsetPx: Int,
+        endOffsetPx: Int,
+    ): PanelWindowCoordinates? {
+        val anchor = when (positionKey) {
+            "top_center" -> PanelWindowAnchor.TopCenter
+            "top_right" -> PanelWindowAnchor.TopRight
+            "bottom_right" -> PanelWindowAnchor.BottomRight
+            "bottom_center" -> PanelWindowAnchor.BottomCenter
+            else -> return null
+        }
+        return fromAnchor(
+            anchor = anchor,
+            bounds = bounds,
+            topOffsetPx = topOffsetPx,
+            endOffsetPx = endOffsetPx,
+        )
+    }
+
     fun fromAnchor(
         anchor: PanelWindowAnchor,
         bounds: PanelWindowBounds,

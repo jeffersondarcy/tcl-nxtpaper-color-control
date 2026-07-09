@@ -115,8 +115,6 @@ class ColorControlOverlayService : LifecycleService(), SavedStateRegistryOwner {
                     onMovePanel = ::movePanelBy,
                     onMovePanelFinished = ::saveCurrentPanelCoordinates,
                     onPanelSizeChanged = ::handlePanelSizeChanged,
-                    showAddTile = false,
-                    onAddTile = {},
                     onDismiss = ::stopOverlay,
                 )
             }
@@ -225,6 +223,7 @@ class ColorControlOverlayService : LifecycleService(), SavedStateRegistryOwner {
     private fun initializePanelCoordinates() {
         val bounds = currentPanelBounds()
         val next = loadExactPanelCoordinates()?.let { PanelWindowPositioner.clamp(it, bounds) }
+            ?: loadLegacyPanelCoordinates(bounds)
             ?: PanelWindowPositioner.fromAnchor(
                 anchor = PanelWindowAnchor.TopCenter,
                 bounds = bounds,
@@ -255,6 +254,17 @@ class ColorControlOverlayService : LifecycleService(), SavedStateRegistryOwner {
 
     private fun saveCurrentPanelCoordinates() {
         panelCoordinates?.let(::savePanelCoordinates)
+    }
+
+    private fun loadLegacyPanelCoordinates(bounds: PanelWindowBounds): PanelWindowCoordinates? {
+        val key = getSharedPreferences(PANEL_PREFERENCES_NAME, MODE_PRIVATE)
+            .getString(KEY_PANEL_POSITION, null)
+        return PanelWindowPositioner.fromLegacyPositionKey(
+            positionKey = key,
+            bounds = bounds,
+            topOffsetPx = resources.displayMetrics.heightPixels / 12,
+            endOffsetPx = 16.dpToPx(),
+        )
     }
 
     private fun handlePanelSizeChanged(widthPx: Int, heightPx: Int) {
@@ -319,6 +329,7 @@ class ColorControlOverlayService : LifecycleService(), SavedStateRegistryOwner {
         private const val NOTIFICATION_CHANNEL_ID = "floating_color_controls"
         private const val NOTIFICATION_ID = 2001
         private const val PANEL_PREFERENCES_NAME = "panel_window"
+        private const val KEY_PANEL_POSITION = "position"
         private const val KEY_PANEL_X_PX = "x_px"
         private const val KEY_PANEL_Y_PX = "y_px"
 

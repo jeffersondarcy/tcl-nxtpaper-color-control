@@ -3,10 +3,6 @@
     <string name="app_name">TCL Color Control</string>
     <string name="quick_settings_tile_label">TCL Color</string>
     <string name="quick_settings_tile_subtitle">Reader controls</string>
-    <string name="quick_settings_tile_added">Quick Settings tile added</string>
-    <string name="quick_settings_tile_already_added">Quick Settings tile already added</string>
-    <string name="quick_settings_tile_not_added">Quick Settings tile not added</string>
-    <string name="quick_settings_tile_add_failed">Could not add Quick Settings tile</string>
     <string name="shortcut_open_panel_short_label">TCL Color</string>
     <string name="shortcut_open_panel_long_label">Open TCL Color</string>
     <string name="shortcut_open_panel_disabled">TCL Color shortcut unavailable</string>
