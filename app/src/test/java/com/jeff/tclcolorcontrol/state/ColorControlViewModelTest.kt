@@ -145,6 +145,29 @@ class ColorControlViewModelTest {
     }
 
     @Test
+    fun failedPostInversionReapplyIsVisibleInStatus() {
+        val backend = FakeBackend(
+            applyResult = BackendResult.Success,
+            applyResults = listOf(
+                BackendResult.Success,
+                BackendResult.Failed("reapply rejected"),
+            ),
+        )
+        val viewModel = ColorControlViewModel(
+            backend = backend,
+            profileStore = InMemoryProfileStore(),
+            liveApplyScope = testScope(),
+            applyDispatcher = Dispatchers.Unconfined,
+            postInversionReapplyDelayMillis = 0L,
+        )
+
+        viewModel.setInversionEnabled(true)
+
+        assertEquals(2, backend.applyCount)
+        assertEquals("Failed: reapply rejected", viewModel.uiState.value.status)
+    }
+
+    @Test
     fun changingProfileWhileInvertedAppliesInvertedProfile() {
         val store = InMemoryProfileStore(savedInversionEnabled = true)
         val backend = FakeBackend(applyResult = BackendResult.Success)
@@ -309,6 +332,7 @@ class ColorControlViewModelTest {
         ),
         private val systemSettingsResult: BackendResult = BackendResult.Success,
         private val restoreResult: BackendResult = BackendResult.Success,
+        private val applyResults: List<BackendResult> = emptyList(),
     ) : ColorBackend {
         var appliedProfile: ColorProfile? = null
         var appliedInverted: Boolean = false
@@ -324,13 +348,14 @@ class ColorControlViewModelTest {
         override fun readDisplaySnapshot(): DisplaySnapshot = capabilities.displaySnapshot
 
         override fun apply(profile: ColorProfile, inverted: Boolean): BackendResult {
+            val result = applyResults.getOrNull(applyCount) ?: applyResult
             applyCount += 1
             appliedProfile = profile
             appliedInverted = inverted
-            if (applyResult == BackendResult.Success) {
+            if (result == BackendResult.Success) {
                 updateDisplaySnapshot(colorInversionEnabled = inverted)
             }
-            return applyResult
+            return result
         }
 
         override fun restoreBaseline(): BackendResult {
