@@ -68,10 +68,11 @@ class ColorControlViewModel(
     private val scope = liveApplyScope ?: viewModelScope
     private val colorOperationMutex = Mutex()
     private val colorOperationVersion = AtomicLong()
+    private val initialProfile = profileStore.load() ?: ColorProfiles.Red
 
     private val _uiState = MutableStateFlow(
         initialState(
-            selected = profileStore.load() ?: ColorProfiles.Red,
+            selected = initialProfile,
             inversionEnabled = profileStore.loadInversionEnabled(),
             capabilities = backend.getCapabilities(),
         )
@@ -79,6 +80,7 @@ class ColorControlViewModel(
     val uiState: StateFlow<ColorControlUiState> = _uiState.asStateFlow()
 
     init {
+        migrateInitialCustomProfile()
         scope.launch {
             processLiveRequests()
         }
@@ -292,6 +294,12 @@ class ColorControlViewModel(
         profileStore.save(profile)
         if (profile.id == CUSTOM_PROFILE_ID) {
             profileStore.saveCustom(profile)
+        }
+    }
+
+    private fun migrateInitialCustomProfile() {
+        if (initialProfile.id == CUSTOM_PROFILE_ID) {
+            profileStore.saveCustom(initialProfile)
         }
     }
 

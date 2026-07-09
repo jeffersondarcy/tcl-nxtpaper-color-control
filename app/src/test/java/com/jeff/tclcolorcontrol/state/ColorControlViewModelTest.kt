@@ -92,6 +92,25 @@ class ColorControlViewModelTest {
     }
 
     @Test
+    fun legacyActiveCustomProfileIsMigratedBeforePresetSelection() {
+        val legacyCustom = ColorProfile.custom(red = 0.8f, green = 0.3f, blue = 0.1f)
+        val store = InMemoryProfileStore(savedProfile = legacyCustom)
+        val viewModel = ColorControlViewModel(
+            backend = FakeBackend(applyResult = BackendResult.Success),
+            profileStore = store,
+            liveApplyScope = testScope(),
+            applyDispatcher = Dispatchers.Unconfined,
+        )
+
+        assertEquals(legacyCustom, store.savedCustomProfile)
+
+        viewModel.selectProfile(ColorProfiles.Deep)
+
+        assertEquals(ColorProfiles.Deep, store.savedProfile)
+        assertEquals(legacyCustom, store.savedCustomProfile)
+    }
+
+    @Test
     fun customButtonRestoresSavedCustomAfterPresetChainAndAppliesIt() {
         val savedCustom = ColorProfile.custom(red = 0.8f, green = 0.3f, blue = 0.1f)
         val store = InMemoryProfileStore(savedCustomProfile = savedCustom)

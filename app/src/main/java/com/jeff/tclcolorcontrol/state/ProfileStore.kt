@@ -47,7 +47,7 @@ class SharedPreferencesProfileStore(
         }
 
         if (preferences.getString(KEY_ID, null) == CUSTOM_PROFILE_ID) {
-            return load()
+            return load()?.also(::saveCustom)
         }
         return null
     }
