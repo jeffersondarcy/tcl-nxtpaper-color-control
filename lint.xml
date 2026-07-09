@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<lint>
+    <!-- Personal sideload-only app: targetSdk 28 is intentional while probing hidden TCL binder access. -->
+    <issue id="ExpiredTargetSdkVersion" severity="ignore" />
+
+    <!-- WRITE_SECURE_SETTINGS is intentionally declared for one-time ADB grant probing. -->
+    <issue id="ProtectedPermissions" severity="ignore" />
+</lint>

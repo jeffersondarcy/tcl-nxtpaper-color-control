@@ -1,0 +1,219 @@
+package com.jeff.tclcolorcontrol.ui
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.ElevatedButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
+import com.jeff.tclcolorcontrol.color.ColorProfile
+import com.jeff.tclcolorcontrol.color.ColorProfiles
+import com.jeff.tclcolorcontrol.color.percentLabel
+import com.jeff.tclcolorcontrol.device.ActivationState
+import com.jeff.tclcolorcontrol.state.ColorControlUiState
+
+@Composable
+fun ColorControlScreen(
+    state: ColorControlUiState,
+    onSelectProfile: (ColorProfile) -> Unit,
+    onRedChange: (Float) -> Unit,
+    onGreenChange: (Float) -> Unit,
+    onBlueChange: (Float) -> Unit,
+    onApply: () -> Unit,
+    onRestore: () -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier
+            .widthIn(min = 320.dp, max = 520.dp)
+            .padding(10.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        tonalElevation = 6.dp,
+        shadowElevation = 10.dp,
+        shape = RoundedCornerShape(8.dp),
+    ) {
+        Column(
+            modifier = Modifier
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Header(onDismiss = onDismiss)
+            Presets(
+                presets = state.presets,
+                selected = state.selected,
+                onSelectProfile = onSelectProfile,
+            )
+            ChannelSlider("Red", state.selected.red, ChannelRed, onRedChange)
+            ChannelSlider("Green", state.selected.green, ChannelGreen, onGreenChange)
+            ChannelSlider("Blue", state.selected.blue, ChannelBlue, onBlueChange)
+            Actions(onApply = onApply, onRestore = onRestore)
+            StatusBlock(state)
+        }
+    }
+}
+
+@Composable
+private fun Header(onDismiss: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Column {
+            Text(
+                text = "TCL Color",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = "Compositor profile",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        OutlinedButton(onClick = onDismiss) {
+            Text("Close")
+        }
+    }
+}
+
+@Composable
+private fun Presets(
+    presets: List<ColorProfile>,
+    selected: ColorProfile,
+    onSelectProfile: (ColorProfile) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        presets.forEach { profile ->
+            val isSelected = selected.id == profile.id
+            if (isSelected) {
+                Button(onClick = { onSelectProfile(profile) }) {
+                    Text(profile.label)
+                }
+            } else {
+                OutlinedButton(onClick = { onSelectProfile(profile) }) {
+                    Text(profile.label)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChannelSlider(
+    label: String,
+    value: Float,
+    color: Color,
+    onValueChange: (Float) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(label, fontWeight = FontWeight.Medium)
+            Text(value.percentLabel(), color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Slider(
+            value = value,
+            onValueChange = onValueChange,
+            valueRange = 0f..1f,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(36.dp)
+                .background(color.copy(alpha = 0.08f), RoundedCornerShape(8.dp)),
+        )
+    }
+}
+
+@Composable
+private fun Actions(
+    onApply: () -> Unit,
+    onRestore: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        ElevatedButton(
+            onClick = onApply,
+            modifier = Modifier.weight(1f),
+        ) {
+            Text("Apply")
+        }
+        OutlinedButton(
+            onClick = onRestore,
+            modifier = Modifier.weight(1f),
+        ) {
+            Text("Restore")
+        }
+    }
+}
+
+@Composable
+private fun StatusBlock(state: ColorControlUiState) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f), RoundedCornerShape(8.dp))
+            .padding(10.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(state.status, fontWeight = FontWeight.Medium)
+        Text("Binder: ${if (state.capabilities.binderAvailable) "available" else "missing"}")
+        Text("Secure settings: ${if (state.capabilities.canWriteSecureSettings) "granted" else "missing"}")
+        Text("Activation: ${state.capabilities.activationState.label}")
+    }
+}
+
+private val ActivationState.label: String
+    get() = when (this) {
+        ActivationState.Active -> "active"
+        ActivationState.Inactive -> "inactive"
+        ActivationState.Unknown -> "unknown"
+    }
+
+private val ChannelRed = Color(0xFFB42318)
+private val ChannelGreen = Color(0xFF16803C)
+private val ChannelBlue = Color(0xFF175CD3)
+
+@Preview(widthDp = 420)
+@Composable
+private fun ColorControlScreenPreview() {
+    TclColorControlTheme {
+        ColorControlScreen(
+            state = ColorControlUiState(selected = ColorProfiles.Red),
+            onSelectProfile = {},
+            onRedChange = {},
+            onGreenChange = {},
+            onBlueChange = {},
+            onApply = {},
+            onRestore = {},
+            onDismiss = {},
+        )
+    }
+}
