@@ -8,6 +8,7 @@ import android.os.Parcel
 import android.provider.Settings
 import com.jeff.tclcolorcontrol.color.ColorProfile
 import com.jeff.tclcolorcontrol.color.ColorProfiles
+import kotlin.math.roundToInt
 
 class AndroidColorBackend(
     private val context: Context,
@@ -16,8 +17,10 @@ class AndroidColorBackend(
         BackendCapabilities(
             binderAvailable = findTclBinder() != null,
             canWriteSecureSettings = canWriteSecureSettings(),
+            canWriteSystemSettings = canWriteSystemSettings(),
             activationState = readActivationState(),
             modeSnapshot = readModeSnapshot(),
+            displaySnapshot = readDisplaySnapshot(),
         )
 
     override fun readModeSnapshot(): TclModeSnapshot =
@@ -32,9 +35,25 @@ class AndroidColorBackend(
             matrix = getSecureString(TCL_COLOR_TEMPERATURE_MATRIX),
         )
 
-    override fun apply(profile: ColorProfile): BackendResult {
+    override fun readDisplaySnapshot(): DisplaySnapshot {
+        val rawBrightness = getSystemInt(Settings.System.SCREEN_BRIGHTNESS)
+        val brightness = rawBrightness?.coerceIn(MIN_BRIGHTNESS, MAX_BRIGHTNESS)?.toFloat()
+            ?.div(MAX_BRIGHTNESS.toFloat())
+        val autoBrightness = when (getSystemInt(Settings.System.SCREEN_BRIGHTNESS_MODE)) {
+            Settings.System.SCREEN_BRIGHTNESS_MODE_AUTOMATIC -> true
+            Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL -> false
+            else -> null
+        }
+        return DisplaySnapshot(
+            brightness = brightness,
+            rawBrightness = rawBrightness,
+            autoBrightness = autoBrightness,
+        )
+    }
+
+    override fun apply(profile: ColorProfile, inverted: Boolean): BackendResult {
         val binder = findTclBinder() ?: return BackendResult.BinderUnavailable
-        val matrixResult = binder.callSetSurfaceFlingerMatrix(profile.toMatrix())
+        val matrixResult = binder.callSetSurfaceFlingerMatrix(profile.toMatrix(inverted))
         if (matrixResult !is BackendResult.Success) return matrixResult
 
         return if (canWriteSecureSettings()) {
@@ -42,6 +61,27 @@ class AndroidColorBackend(
         } else {
             BackendResult.PermissionMissing
         }
+    }
+
+    override fun setBrightness(value: Float): BackendResult {
+        if (!canWriteSystemSettings()) return BackendResult.SystemSettingsPermissionMissing
+        return putSystemInt(
+            Settings.System.SCREEN_BRIGHTNESS,
+            (value.coerceIn(BRIGHTNESS_RANGE) * MAX_BRIGHTNESS).roundToInt()
+                .coerceIn(MIN_WRITABLE_BRIGHTNESS, MAX_BRIGHTNESS),
+        )
+    }
+
+    override fun setAutoBrightness(enabled: Boolean): BackendResult {
+        if (!canWriteSystemSettings()) return BackendResult.SystemSettingsPermissionMissing
+        return putSystemInt(
+            Settings.System.SCREEN_BRIGHTNESS_MODE,
+            if (enabled) {
+                Settings.System.SCREEN_BRIGHTNESS_MODE_AUTOMATIC
+            } else {
+                Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL
+            },
+        )
     }
 
     override fun restoreBaseline(): BackendResult {
@@ -93,6 +133,9 @@ class AndroidColorBackend(
         context.checkSelfPermission(Manifest.permission.WRITE_SECURE_SETTINGS) ==
             PackageManager.PERMISSION_GRANTED
 
+    private fun canWriteSystemSettings(): Boolean =
+        Settings.System.canWrite(context)
+
     private fun readActivationState(): ActivationState =
         runCatching {
             when (Settings.Secure.getString(context.contentResolver, TCL_COLOR_TEMPERATURE_ACTIVATED)) {
@@ -105,6 +148,14 @@ class AndroidColorBackend(
     private fun putSecureInt(name: String, value: Int): BackendResult =
         runCatching {
             Settings.Secure.putInt(context.contentResolver, name, value)
+            BackendResult.Success
+        }.getOrElse { error ->
+            BackendResult.Failed(error.message ?: error.javaClass.simpleName)
+        }
+
+    private fun putSystemInt(name: String, value: Int): BackendResult =
+        runCatching {
+            Settings.System.putInt(context.contentResolver, name, value)
             BackendResult.Success
         }.getOrElse { error ->
             BackendResult.Failed(error.message ?: error.javaClass.simpleName)
@@ -131,6 +182,9 @@ class AndroidColorBackend(
         const val TCL_NXTVISION_INTERFACE = "tct.nxtvision.ITctComponentNxtvisionManager"
         const val TRANSACTION_SET_SF_CLIENT_MATRIX = 12
         const val MATRIX_SIZE = 16
+        const val MIN_BRIGHTNESS = 0
+        const val MIN_WRITABLE_BRIGHTNESS = 8
+        const val MAX_BRIGHTNESS = 255
         const val TCL_COLOR_TEMPERATURE_ACTIVATED = "tct_color_temperature_activated"
         const val TCL_COLOR_TEMPERATURE_MATRIX = "tct_color_temperature_matrix"
         const val EYEPROTECT_STATUS = "eyeprotect_status"
@@ -139,5 +193,6 @@ class AndroidColorBackend(
         const val EYEPROTECT_PERSONALIZED_SET = "eyeprotect_persionalize_set"
         const val COLOR_MODE_VALUE = "color_mode_value"
         const val ADVANCED_COLOR_MODE_VALUE = "adv_color_mode_value"
+        val BRIGHTNESS_RANGE = 0f..1f
     }
 }

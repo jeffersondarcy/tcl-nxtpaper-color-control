@@ -5,15 +5,20 @@ import com.jeff.tclcolorcontrol.color.ColorProfile
 interface ColorBackend {
     fun getCapabilities(): BackendCapabilities
     fun readModeSnapshot(): TclModeSnapshot
-    fun apply(profile: ColorProfile): BackendResult
+    fun readDisplaySnapshot(): DisplaySnapshot
+    fun apply(profile: ColorProfile, inverted: Boolean = false): BackendResult
     fun restoreBaseline(): BackendResult
+    fun setBrightness(value: Float): BackendResult
+    fun setAutoBrightness(enabled: Boolean): BackendResult
 }
 
 data class BackendCapabilities(
     val binderAvailable: Boolean,
     val canWriteSecureSettings: Boolean,
+    val canWriteSystemSettings: Boolean,
     val activationState: ActivationState,
     val modeSnapshot: TclModeSnapshot = TclModeSnapshot(),
+    val displaySnapshot: DisplaySnapshot = DisplaySnapshot(),
 )
 
 enum class ActivationState {
@@ -57,9 +62,16 @@ data class TclModeSnapshot(
     }
 }
 
+data class DisplaySnapshot(
+    val brightness: Float? = null,
+    val rawBrightness: Int? = null,
+    val autoBrightness: Boolean? = null,
+)
+
 sealed interface BackendResult {
     data object Success : BackendResult
     data object BinderUnavailable : BackendResult
     data object PermissionMissing : BackendResult
+    data object SystemSettingsPermissionMissing : BackendResult
     data class Failed(val message: String) : BackendResult
 }

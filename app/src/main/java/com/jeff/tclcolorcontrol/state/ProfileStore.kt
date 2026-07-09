@@ -7,6 +7,8 @@ import com.jeff.tclcolorcontrol.color.ColorProfiles
 interface ProfileStore {
     fun load(): ColorProfile?
     fun save(profile: ColorProfile)
+    fun loadInversionEnabled(): Boolean
+    fun saveInversionEnabled(enabled: Boolean)
 }
 
 class SharedPreferencesProfileStore(
@@ -34,11 +36,21 @@ class SharedPreferencesProfileStore(
             .apply()
     }
 
+    override fun loadInversionEnabled(): Boolean =
+        preferences.getBoolean(KEY_INVERSION_ENABLED, false)
+
+    override fun saveInversionEnabled(enabled: Boolean) {
+        preferences.edit()
+            .putBoolean(KEY_INVERSION_ENABLED, enabled)
+            .apply()
+    }
+
     private companion object {
         const val PREFERENCES_NAME = "color_profiles"
         const val KEY_ID = "id"
         const val KEY_RED = "red"
         const val KEY_GREEN = "green"
         const val KEY_BLUE = "blue"
+        const val KEY_INVERSION_ENABLED = "inversion_enabled"
     }
 }

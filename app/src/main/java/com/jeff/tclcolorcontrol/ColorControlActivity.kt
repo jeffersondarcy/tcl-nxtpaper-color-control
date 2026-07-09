@@ -3,7 +3,9 @@ package com.jeff.tclcolorcontrol
 import android.app.Activity
 import android.app.StatusBarManager
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
+import android.provider.Settings
 import android.view.Gravity
 import android.view.Window
 import android.view.WindowManager
@@ -50,6 +52,11 @@ class ColorControlActivity : ComponentActivity() {
                     onGreenChange = viewModel::setGreen,
                     onBlueChange = viewModel::setBlue,
                     onSliderFinished = viewModel::finishSliderChange,
+                    onInversionChange = viewModel::setInversionEnabled,
+                    onAutoBrightnessChange = viewModel::setAutoBrightness,
+                    onBrightnessChange = viewModel::setBrightness,
+                    onBrightnessFinished = viewModel::finishBrightnessChange,
+                    onGrantSystemSettings = ::openWriteSettingsPanel,
                     onEnableCustom = viewModel::enableCustomMode,
                     onSwitchClassic = viewModel::switchToClassicSafeMode,
                     onRestore = viewModel::restoreBaseline,
@@ -66,6 +73,11 @@ class ColorControlActivity : ComponentActivity() {
                 requestQuickSettingsTile(auto = true)
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        viewModel.refreshSystemState()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -124,6 +136,14 @@ class ColorControlActivity : ComponentActivity() {
                 Toast.makeText(this, result.tileRequestToast(), Toast.LENGTH_SHORT).show()
             }
         }
+    }
+
+    private fun openWriteSettingsPanel() {
+        val intent = Intent(
+            Settings.ACTION_MANAGE_WRITE_SETTINGS,
+            Uri.parse("package:$packageName"),
+        )
+        startActivity(intent)
     }
 
     private fun Int.shouldRememberAutoPrompt(): Boolean =

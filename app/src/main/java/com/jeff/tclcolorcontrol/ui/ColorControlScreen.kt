@@ -17,6 +17,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -24,6 +25,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -45,6 +47,11 @@ fun ColorControlScreen(
     onGreenChange: (Float) -> Unit,
     onBlueChange: (Float) -> Unit,
     onSliderFinished: () -> Unit,
+    onInversionChange: (Boolean) -> Unit,
+    onAutoBrightnessChange: (Boolean) -> Unit,
+    onBrightnessChange: (Float) -> Unit,
+    onBrightnessFinished: () -> Unit,
+    onGrantSystemSettings: () -> Unit,
     onEnableCustom: () -> Unit,
     onSwitchClassic: () -> Unit,
     onRestore: () -> Unit,
@@ -97,6 +104,19 @@ fun ColorControlScreen(
                 ChannelSlider("Red", state.selected.red, ChannelRed, state.controlsEnabled, onRedChange, onSliderFinished)
                 ChannelSlider("Green", state.selected.green, ChannelGreen, state.controlsEnabled, onGreenChange, onSliderFinished)
                 ChannelSlider("Blue", state.selected.blue, ChannelBlue, state.controlsEnabled, onBlueChange, onSliderFinished)
+                DisplayControls(
+                    inversionEnabled = state.inversionEnabled,
+                    inversionControlEnabled = state.inversionControlEnabled,
+                    autoBrightness = state.autoBrightness,
+                    brightness = state.brightness,
+                    canWriteSystemSettings = state.capabilities.canWriteSystemSettings,
+                    brightnessControlsEnabled = state.brightnessControlsEnabled,
+                    onInversionChange = onInversionChange,
+                    onAutoBrightnessChange = onAutoBrightnessChange,
+                    onBrightnessChange = onBrightnessChange,
+                    onBrightnessFinished = onBrightnessFinished,
+                    onGrantSystemSettings = onGrantSystemSettings,
+                )
                 Actions(
                     showAddTile = showAddTile,
                     onAddTile = onAddTile,
@@ -277,6 +297,75 @@ private fun ChannelSlider(
 }
 
 @Composable
+private fun DisplayControls(
+    inversionEnabled: Boolean,
+    inversionControlEnabled: Boolean,
+    autoBrightness: Boolean,
+    brightness: Float,
+    canWriteSystemSettings: Boolean,
+    brightnessControlsEnabled: Boolean,
+    onInversionChange: (Boolean) -> Unit,
+    onAutoBrightnessChange: (Boolean) -> Unit,
+    onBrightnessChange: (Float) -> Unit,
+    onBrightnessFinished: () -> Unit,
+    onGrantSystemSettings: () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Display", fontWeight = FontWeight.Medium)
+        ToggleRow(
+            label = "Invert",
+            checked = inversionEnabled,
+            enabled = inversionControlEnabled,
+            onCheckedChange = onInversionChange,
+        )
+        ToggleRow(
+            label = "Auto brightness",
+            checked = autoBrightness,
+            enabled = canWriteSystemSettings,
+            onCheckedChange = onAutoBrightnessChange,
+        )
+        if (canWriteSystemSettings) {
+            ChannelSlider(
+                label = "Brightness",
+                value = brightness,
+                color = ChannelBrightness,
+                enabled = brightnessControlsEnabled,
+                onValueChange = onBrightnessChange,
+                onValueChangeFinished = onBrightnessFinished,
+            )
+        } else {
+            OutlinedButton(
+                onClick = onGrantSystemSettings,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Grant brightness access")
+            }
+        }
+    }
+}
+
+@Composable
+private fun ToggleRow(
+    label: String,
+    checked: Boolean,
+    enabled: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, fontWeight = FontWeight.Medium)
+        Switch(
+            checked = checked,
+            enabled = enabled,
+            onCheckedChange = onCheckedChange,
+        )
+    }
+}
+
+@Composable
 private fun Actions(
     showAddTile: Boolean,
     onAddTile: () -> Unit,
@@ -332,6 +421,8 @@ private fun StatusBlock(state: ColorControlUiState) {
         Text("Mode: ${state.controlMode.label} / ${state.capabilities.modeSnapshot.modeLabel}")
         Text("Binder: ${if (state.capabilities.binderAvailable) "available" else "missing"}")
         Text("Secure settings: ${if (state.capabilities.canWriteSecureSettings) "granted" else "missing"}")
+        Text("System settings: ${if (state.capabilities.canWriteSystemSettings) "granted" else "missing"}")
+        Text("Brightness: ${if (state.autoBrightness) "auto" else state.brightness.percentLabel()}")
         Text("Activation: ${state.capabilities.activationState.label}")
         Text("Eye comfort: ${state.capabilities.modeSnapshot.eyeComfortLabel}")
         Text("Color mode: ${state.capabilities.modeSnapshot.colorModeLabel}")
@@ -370,6 +461,7 @@ private val TclModeSnapshot.colorModeLabel: String
 private val ChannelRed = Color(0xFFB42318)
 private val ChannelGreen = Color(0xFF16803C)
 private val ChannelBlue = Color(0xFF175CD3)
+private val ChannelBrightness = Color(0xFF8B6F1D)
 
 @Preview(widthDp = 420)
 @Composable
@@ -382,6 +474,11 @@ private fun ColorControlScreenPreview() {
             onGreenChange = {},
             onBlueChange = {},
             onSliderFinished = {},
+            onInversionChange = {},
+            onAutoBrightnessChange = {},
+            onBrightnessChange = {},
+            onBrightnessFinished = {},
+            onGrantSystemSettings = {},
             onEnableCustom = {},
             onSwitchClassic = {},
             onRestore = {},

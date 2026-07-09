@@ -28,13 +28,23 @@ data class ColorControlUiState(
     val capabilities: BackendCapabilities = BackendCapabilities(
         binderAvailable = false,
         canWriteSecureSettings = false,
+        canWriteSystemSettings = false,
         activationState = ActivationState.Unknown,
     ),
+    val inversionEnabled: Boolean = false,
+    val brightness: Float = 1f,
+    val autoBrightness: Boolean = false,
     val controlMode: ControlMode = ControlMode.External,
     val status: String = "Ready",
 ) {
     val controlsEnabled: Boolean
         get() = controlMode == ControlMode.CustomMatrix && capabilities.binderAvailable
+
+    val inversionControlEnabled: Boolean
+        get() = capabilities.binderAvailable
+
+    val brightnessControlsEnabled: Boolean
+        get() = capabilities.canWriteSystemSettings && !autoBrightness
 }
 
 enum class ControlMode {
@@ -56,6 +66,7 @@ class ColorControlViewModel(
     private val _uiState = MutableStateFlow(
         initialState(
             selected = profileStore.load() ?: ColorProfiles.Red,
+            inversionEnabled = profileStore.loadInversionEnabled(),
             capabilities = backend.getCapabilities(),
         )
     )
@@ -99,7 +110,7 @@ class ColorControlViewModel(
     fun setBlue(value: Float) = updateCustom(blue = value.clampChannel())
 
     fun applyCurrent() {
-        val result = backend.apply(_uiState.value.selected)
+        val result = backend.apply(_uiState.value.selected, _uiState.value.inversionEnabled)
         profileStore.save(_uiState.value.selected)
         refreshAfter(result, successMessage = "Applied ${_uiState.value.selected.label}")
     }
@@ -120,6 +131,77 @@ class ColorControlViewModel(
         queueLiveApply(_uiState.value.selected, immediate = true)
     }
 
+    fun setInversionEnabled(enabled: Boolean) {
+        scope.launch {
+            val profile = _uiState.value.selected
+            _uiState.update {
+                it.copy(
+                    status = if (enabled) "Applying inverted profile" else "Applying normal profile",
+                )
+            }
+            val result = withContext(applyDispatcher) {
+                backend.apply(profile, enabled)
+            }
+            if (result.matrixWasSent) {
+                profileStore.saveInversionEnabled(enabled)
+                profileStore.save(profile)
+                _uiState.update {
+                    it.copy(
+                        inversionEnabled = enabled,
+                        controlMode = ControlMode.CustomMatrix,
+                    )
+                }
+            }
+            refreshAfter(
+                result = result,
+                successMessage = if (enabled) "Inverted ${profile.label}" else "Normal ${profile.label}",
+                forceMode = if (result.matrixWasSent) ControlMode.CustomMatrix else null,
+            )
+        }
+    }
+
+    fun setBrightness(value: Float) {
+        val brightness = value.coerceIn(BRIGHTNESS_RANGE)
+        _uiState.update {
+            it.copy(
+                brightness = brightness,
+                status = "Setting brightness ${(brightness * 100f).toInt()}%",
+            )
+        }
+    }
+
+    fun finishBrightnessChange() {
+        val brightness = _uiState.value.brightness
+        val result = backend.setBrightness(brightness)
+        refreshAfter(result, successMessage = "Brightness updated", keepMode = true)
+    }
+
+    fun setAutoBrightness(enabled: Boolean) {
+        _uiState.update {
+            it.copy(
+                autoBrightness = enabled,
+                status = if (enabled) "Turning auto brightness on" else "Turning auto brightness off",
+            )
+        }
+        val result = backend.setAutoBrightness(enabled)
+        refreshAfter(
+            result = result,
+            successMessage = if (enabled) "Auto brightness on" else "Manual brightness on",
+            keepMode = true,
+        )
+    }
+
+    fun refreshSystemState() {
+        val capabilities = backend.getCapabilities()
+        _uiState.update {
+            it.copy(
+                capabilities = capabilities,
+                brightness = capabilities.displaySnapshot.brightness ?: it.brightness,
+                autoBrightness = capabilities.displaySnapshot.autoBrightness ?: it.autoBrightness,
+            )
+        }
+    }
+
     fun switchToClassicSafeMode() {
         scope.launch {
             _uiState.update { it.copy(status = "Turning custom matrix off") }
@@ -137,7 +219,14 @@ class ColorControlViewModel(
     fun restoreBaseline() {
         val result = backend.restoreBaseline()
         profileStore.save(ColorProfiles.Baseline)
-        _uiState.update { it.copy(selected = ColorProfiles.Baseline, controlMode = ControlMode.ClassicSafe) }
+        profileStore.saveInversionEnabled(false)
+        _uiState.update {
+            it.copy(
+                selected = ColorProfiles.Baseline,
+                inversionEnabled = false,
+                controlMode = ControlMode.ClassicSafe,
+            )
+        }
         refreshAfter(result, successMessage = "Baseline restored", forceMode = ControlMode.ClassicSafe)
     }
 
@@ -174,11 +263,16 @@ class ColorControlViewModel(
     }
 
     private suspend fun applyLiveProfile(profile: ColorProfile) {
+        val inverted = _uiState.value.inversionEnabled
         val result = withContext(applyDispatcher) {
-            backend.apply(profile)
+            backend.apply(profile, inverted)
         }
         profileStore.save(profile)
-        refreshAfter(result, successMessage = "Live ${profile.label}", forceMode = ControlMode.CustomMatrix)
+        refreshAfter(
+            result = result,
+            successMessage = if (inverted) "Live inverted ${profile.label}" else "Live ${profile.label}",
+            forceMode = ControlMode.CustomMatrix,
+        )
     }
 
     private fun queueLiveApply(profile: ColorProfile, immediate: Boolean) {
@@ -189,12 +283,19 @@ class ColorControlViewModel(
         result: BackendResult,
         successMessage: String,
         forceMode: ControlMode? = null,
+        keepMode: Boolean = false,
     ) {
         val capabilities = backend.getCapabilities()
         _uiState.update {
             it.copy(
                 capabilities = capabilities,
-                controlMode = forceMode ?: capabilities.toControlMode(),
+                brightness = capabilities.displaySnapshot.brightness ?: it.brightness,
+                autoBrightness = capabilities.displaySnapshot.autoBrightness ?: it.autoBrightness,
+                controlMode = when {
+                    forceMode != null -> forceMode
+                    keepMode -> it.controlMode
+                    else -> capabilities.toControlMode()
+                },
                 status = result.toStatusMessage(successMessage),
             )
         }
@@ -202,6 +303,7 @@ class ColorControlViewModel(
 
     private companion object {
         const val LIVE_APPLY_DELAY_MILLIS = 40L
+        val BRIGHTNESS_RANGE = 0f..1f
     }
 }
 
@@ -221,8 +323,12 @@ private fun BackendResult.toStatusMessage(successMessage: String): String =
         BackendResult.Success -> successMessage
         BackendResult.BinderUnavailable -> "TCL service unavailable"
         BackendResult.PermissionMissing -> "Matrix sent; grant WRITE_SECURE_SETTINGS for activation"
+        BackendResult.SystemSettingsPermissionMissing -> "Grant Modify system settings for brightness"
         is BackendResult.Failed -> "Failed: $message"
     }
+
+private val BackendResult.matrixWasSent: Boolean
+    get() = this == BackendResult.Success || this == BackendResult.PermissionMissing
 
 private data class LiveApplyRequest(
     val profile: ColorProfile,
@@ -231,13 +337,19 @@ private data class LiveApplyRequest(
 
 private fun initialState(
     selected: ColorProfile,
+    inversionEnabled: Boolean,
     capabilities: BackendCapabilities,
 ): ColorControlUiState =
     ColorControlUiState(
         selected = selected,
+        inversionEnabled = inversionEnabled,
         capabilities = capabilities,
+        brightness = capabilities.displaySnapshot.brightness ?: DEFAULT_BRIGHTNESS,
+        autoBrightness = capabilities.displaySnapshot.autoBrightness ?: false,
         controlMode = capabilities.toControlMode(),
     )
+
+private const val DEFAULT_BRIGHTNESS = 1f
 
 private fun BackendCapabilities.toControlMode(): ControlMode =
     when (activationState) {
