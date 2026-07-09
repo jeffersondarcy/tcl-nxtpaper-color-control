@@ -464,6 +464,7 @@ class ColorControlViewModelTest {
                     binderAvailable = true,
                     canWriteSecureSettings = true,
                     canWriteSystemSettings = true,
+                    extraDimAvailable = true,
                     activationState = ActivationState.Active,
                     displaySnapshot = DisplaySnapshot(extraDimEnabled = false),
                 ),
@@ -485,6 +486,7 @@ class ColorControlViewModelTest {
                 binderAvailable = true,
                 canWriteSecureSettings = true,
                 canWriteSystemSettings = true,
+                extraDimAvailable = true,
                 activationState = ActivationState.Active,
                 displaySnapshot = DisplaySnapshot(extraDimEnabled = false, extraDimStrength = 0.5f),
             ),
@@ -511,6 +513,7 @@ class ColorControlViewModelTest {
                 binderAvailable = true,
                 canWriteSecureSettings = true,
                 canWriteSystemSettings = true,
+                extraDimAvailable = true,
                 activationState = ActivationState.Active,
                 displaySnapshot = DisplaySnapshot(extraDimEnabled = true, extraDimStrength = 0.5f),
             ),
@@ -530,6 +533,174 @@ class ColorControlViewModelTest {
 
         assertEquals(0.8f, backend.writtenExtraDimStrength)
         assertEquals(0.8f, viewModel.uiState.value.extraDimStrength)
+    }
+
+    @Test
+    fun extraDimControlsRequireFeatureAvailabilityAndSecureSettingsPermission() {
+        val unavailableViewModel = ColorControlViewModel(
+            backend = FakeBackend(
+                applyResult = BackendResult.Success,
+                capabilities = BackendCapabilities(
+                    binderAvailable = true,
+                    canWriteSecureSettings = true,
+                    canWriteSystemSettings = true,
+                    extraDimAvailable = false,
+                    activationState = ActivationState.Active,
+                ),
+            ),
+            profileStore = InMemoryProfileStore(),
+            liveApplyScope = testScope(),
+            applyDispatcher = Dispatchers.Unconfined,
+        )
+        val missingPermissionViewModel = ColorControlViewModel(
+            backend = FakeBackend(
+                applyResult = BackendResult.Success,
+                capabilities = BackendCapabilities(
+                    binderAvailable = true,
+                    canWriteSecureSettings = false,
+                    canWriteSystemSettings = true,
+                    extraDimAvailable = true,
+                    activationState = ActivationState.Active,
+                ),
+            ),
+            profileStore = InMemoryProfileStore(),
+            liveApplyScope = testScope(),
+            applyDispatcher = Dispatchers.Unconfined,
+        )
+        val availableViewModel = ColorControlViewModel(
+            backend = FakeBackend(
+                applyResult = BackendResult.Success,
+                capabilities = BackendCapabilities(
+                    binderAvailable = true,
+                    canWriteSecureSettings = true,
+                    canWriteSystemSettings = true,
+                    extraDimAvailable = true,
+                    activationState = ActivationState.Active,
+                    displaySnapshot = DisplaySnapshot(extraDimEnabled = true),
+                ),
+            ),
+            profileStore = InMemoryProfileStore(),
+            liveApplyScope = testScope(),
+            applyDispatcher = Dispatchers.Unconfined,
+        )
+
+        assertFalse(unavailableViewModel.uiState.value.extraDimControlsEnabled)
+        assertFalse(missingPermissionViewModel.uiState.value.extraDimControlsEnabled)
+        assertTrue(availableViewModel.uiState.value.extraDimControlsEnabled)
+        assertTrue(availableViewModel.uiState.value.extraDimStrengthControlsEnabled)
+    }
+
+    @Test
+    fun failedExtraDimToggleKeepsPreviousStateWhenSnapshotIsUnavailable() {
+        val viewModel = ColorControlViewModel(
+            backend = FakeBackend(
+                applyResult = BackendResult.Success,
+                extraDimResult = BackendResult.Failed("rejected"),
+                capabilities = BackendCapabilities(
+                    binderAvailable = true,
+                    canWriteSecureSettings = true,
+                    canWriteSystemSettings = true,
+                    extraDimAvailable = true,
+                    activationState = ActivationState.Active,
+                    displaySnapshot = DisplaySnapshot(extraDimEnabled = null),
+                ),
+            ),
+            profileStore = InMemoryProfileStore(),
+            liveApplyScope = testScope(),
+            applyDispatcher = Dispatchers.Unconfined,
+        )
+
+        viewModel.setExtraDimEnabled(true)
+
+        assertFalse(viewModel.uiState.value.extraDimEnabled)
+        assertEquals("Failed: rejected", viewModel.uiState.value.status)
+    }
+
+    @Test
+    fun successfulExtraDimToggleKeepsRequestedStateWhenSnapshotIsUnavailable() {
+        val viewModel = ColorControlViewModel(
+            backend = FakeBackend(
+                applyResult = BackendResult.Success,
+                extraDimSnapshotReadable = false,
+                capabilities = BackendCapabilities(
+                    binderAvailable = true,
+                    canWriteSecureSettings = true,
+                    canWriteSystemSettings = true,
+                    extraDimAvailable = true,
+                    activationState = ActivationState.Active,
+                    displaySnapshot = DisplaySnapshot(extraDimEnabled = null),
+                ),
+            ),
+            profileStore = InMemoryProfileStore(),
+            liveApplyScope = testScope(),
+            applyDispatcher = Dispatchers.Unconfined,
+        )
+
+        viewModel.setExtraDimEnabled(true)
+
+        assertTrue(viewModel.uiState.value.extraDimEnabled)
+        assertTrue(viewModel.uiState.value.extraDimStrengthControlsEnabled)
+        assertEquals("Extra dim on", viewModel.uiState.value.status)
+    }
+
+    @Test
+    fun failedExtraDimStrengthRestoresPreviousSnapshotValue() {
+        val viewModel = ColorControlViewModel(
+            backend = FakeBackend(
+                applyResult = BackendResult.Success,
+                extraDimResult = BackendResult.Failed("rejected"),
+                capabilities = BackendCapabilities(
+                    binderAvailable = true,
+                    canWriteSecureSettings = true,
+                    canWriteSystemSettings = true,
+                    extraDimAvailable = true,
+                    activationState = ActivationState.Active,
+                    displaySnapshot = DisplaySnapshot(extraDimEnabled = true, extraDimStrength = 0.4f),
+                ),
+            ),
+            profileStore = InMemoryProfileStore(),
+            liveApplyScope = testScope(),
+            applyDispatcher = Dispatchers.Unconfined,
+        )
+
+        viewModel.setExtraDimStrength(0.9f)
+        viewModel.finishExtraDimStrengthChange()
+
+        assertEquals(0.4f, viewModel.uiState.value.extraDimStrength)
+        assertEquals("Failed: rejected", viewModel.uiState.value.status)
+    }
+
+    @Test
+    fun failedExtraDimStrengthRestoresLastSuccessfulValueWhenSnapshotIsUnavailable() {
+        val viewModel = ColorControlViewModel(
+            backend = FakeBackend(
+                applyResult = BackendResult.Success,
+                extraDimResults = listOf(
+                    BackendResult.Success,
+                    BackendResult.Failed("rejected"),
+                ),
+                extraDimSnapshotReadable = false,
+                capabilities = BackendCapabilities(
+                    binderAvailable = true,
+                    canWriteSecureSettings = true,
+                    canWriteSystemSettings = true,
+                    extraDimAvailable = true,
+                    activationState = ActivationState.Active,
+                    displaySnapshot = DisplaySnapshot(extraDimEnabled = true, extraDimStrength = null),
+                ),
+            ),
+            profileStore = InMemoryProfileStore(),
+            liveApplyScope = testScope(),
+            applyDispatcher = Dispatchers.Unconfined,
+        )
+
+        viewModel.setExtraDimStrength(0.7f)
+        viewModel.finishExtraDimStrengthChange()
+        viewModel.setExtraDimStrength(0.9f)
+        viewModel.finishExtraDimStrengthChange()
+
+        assertEquals(0.7f, viewModel.uiState.value.extraDimStrength)
+        assertEquals("Failed: rejected", viewModel.uiState.value.status)
     }
 
     @Test
@@ -567,6 +738,30 @@ class ColorControlViewModelTest {
         assertTrue(store.savedInversionEnabled)
     }
 
+    @Test
+    fun restoreBaselineTurnsExtraDimOff() {
+        val viewModel = ColorControlViewModel(
+            backend = FakeBackend(
+                applyResult = BackendResult.Success,
+                capabilities = BackendCapabilities(
+                    binderAvailable = true,
+                    canWriteSecureSettings = true,
+                    canWriteSystemSettings = true,
+                    extraDimAvailable = true,
+                    activationState = ActivationState.Active,
+                    displaySnapshot = DisplaySnapshot(extraDimEnabled = true, extraDimStrength = 1f),
+                ),
+            ),
+            profileStore = InMemoryProfileStore(),
+            liveApplyScope = testScope(),
+            applyDispatcher = Dispatchers.Unconfined,
+        )
+
+        viewModel.restoreBaseline()
+
+        assertFalse(viewModel.uiState.value.extraDimEnabled)
+    }
+
     private class FakeBackend(
         private val applyResult: BackendResult,
         private var capabilities: BackendCapabilities = BackendCapabilities(
@@ -576,6 +771,9 @@ class ColorControlViewModelTest {
             activationState = ActivationState.Unknown,
         ),
         private val systemSettingsResult: BackendResult = BackendResult.Success,
+        private val extraDimResult: BackendResult = systemSettingsResult,
+        private val extraDimResults: List<BackendResult> = emptyList(),
+        private val extraDimSnapshotReadable: Boolean = true,
         private val restoreResult: BackendResult = BackendResult.Success,
         private val applyResults: List<BackendResult> = emptyList(),
     ) : ColorBackend {
@@ -587,6 +785,7 @@ class ColorControlViewModelTest {
         var autoBrightnessEnabled: Boolean? = capabilities.displaySnapshot.autoBrightness
         var extraDimEnabled: Boolean? = capabilities.displaySnapshot.extraDimEnabled
         var writtenExtraDimStrength: Float? = null
+        var extraDimCallCount: Int = 0
 
         override fun getCapabilities(): BackendCapabilities = capabilities
 
@@ -607,7 +806,10 @@ class ColorControlViewModelTest {
 
         override fun restoreBaseline(): BackendResult {
             if (restoreResult == BackendResult.Success) {
-                updateDisplaySnapshot(colorInversionEnabled = false)
+                updateDisplaySnapshot(
+                    colorInversionEnabled = false,
+                    extraDimEnabled = false,
+                )
             }
             return restoreResult
         }
@@ -626,15 +828,31 @@ class ColorControlViewModelTest {
         }
 
         override fun setExtraDimEnabled(enabled: Boolean): BackendResult {
-            extraDimEnabled = enabled
-            updateDisplaySnapshot(extraDimEnabled = enabled)
-            return systemSettingsResult
+            val result = nextExtraDimResult()
+            if (result == BackendResult.Success) {
+                extraDimEnabled = enabled
+                if (extraDimSnapshotReadable) {
+                    updateDisplaySnapshot(extraDimEnabled = enabled)
+                }
+            }
+            return result
         }
 
         override fun setExtraDimStrength(value: Float): BackendResult {
-            writtenExtraDimStrength = value
-            updateDisplaySnapshot(extraDimStrength = value)
-            return systemSettingsResult
+            val result = nextExtraDimResult()
+            if (result == BackendResult.Success) {
+                writtenExtraDimStrength = value
+                if (extraDimSnapshotReadable) {
+                    updateDisplaySnapshot(extraDimStrength = value)
+                }
+            }
+            return result
+        }
+
+        private fun nextExtraDimResult(): BackendResult {
+            val result = extraDimResults.getOrNull(extraDimCallCount) ?: extraDimResult
+            extraDimCallCount += 1
+            return result
         }
 
         private fun updateDisplaySnapshot(

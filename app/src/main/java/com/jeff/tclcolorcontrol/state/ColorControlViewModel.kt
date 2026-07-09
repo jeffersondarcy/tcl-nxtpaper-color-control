@@ -53,7 +53,7 @@ data class ColorControlUiState(
         get() = capabilities.canWriteSystemSettings && !autoBrightness
 
     val extraDimControlsEnabled: Boolean
-        get() = capabilities.canWriteSecureSettings
+        get() = capabilities.canWriteSecureSettings && capabilities.extraDimAvailable
 
     val extraDimStrengthControlsEnabled: Boolean
         get() = extraDimControlsEnabled && extraDimEnabled
@@ -87,6 +87,7 @@ class ColorControlViewModel(
         )
     )
     val uiState: StateFlow<ColorControlUiState> = _uiState.asStateFlow()
+    private var lastKnownExtraDimStrength = _uiState.value.extraDimStrength
 
     init {
         migrateInitialCustomProfile()
@@ -232,9 +233,9 @@ class ColorControlViewModel(
     }
 
     fun setExtraDimEnabled(enabled: Boolean) {
+        val previousEnabled = _uiState.value.capabilities.displaySnapshot.extraDimEnabled ?: _uiState.value.extraDimEnabled
         _uiState.update {
             it.copy(
-                extraDimEnabled = enabled,
                 status = if (enabled) "Turning Extra dim on" else "Turning Extra dim off",
             )
         }
@@ -244,6 +245,13 @@ class ColorControlViewModel(
             successMessage = if (enabled) "Extra dim on" else "Extra dim off",
             keepMode = true,
         )
+        if (_uiState.value.capabilities.displaySnapshot.extraDimEnabled == null) {
+            _uiState.update {
+                it.copy(
+                    extraDimEnabled = if (result is BackendResult.Success) enabled else previousEnabled,
+                )
+            }
+        }
     }
 
     fun setExtraDimStrength(value: Float) {
@@ -257,13 +265,23 @@ class ColorControlViewModel(
     }
 
     fun finishExtraDimStrengthChange() {
+        val previousStrength = _uiState.value.capabilities.displaySnapshot.extraDimStrength
+            ?: lastKnownExtraDimStrength
         val strength = _uiState.value.extraDimStrength
         val result = backend.setExtraDimStrength(strength)
         refreshAfter(result, successMessage = "Extra dim intensity updated", keepMode = true)
+        if (result is BackendResult.Success) {
+            lastKnownExtraDimStrength = _uiState.value.capabilities.displaySnapshot.extraDimStrength
+                ?: strength
+        }
+        if (result !is BackendResult.Success && _uiState.value.capabilities.displaySnapshot.extraDimStrength == null) {
+            _uiState.update { it.copy(extraDimStrength = previousStrength) }
+        }
     }
 
     fun refreshSystemState() {
         val capabilities = backend.getCapabilities()
+        capabilities.displaySnapshot.extraDimStrength?.let { lastKnownExtraDimStrength = it }
         _uiState.update {
             it.copy(
                 capabilities = capabilities,
@@ -476,6 +494,7 @@ class ColorControlViewModel(
         keepMode: Boolean = false,
     ) {
         val capabilities = backend.getCapabilities()
+        capabilities.displaySnapshot.extraDimStrength?.let { lastKnownExtraDimStrength = it }
         _uiState.update {
             it.copy(
                 capabilities = capabilities,

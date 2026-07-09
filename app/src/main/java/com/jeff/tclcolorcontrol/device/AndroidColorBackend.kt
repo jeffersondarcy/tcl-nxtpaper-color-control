@@ -2,6 +2,7 @@ package com.jeff.tclcolorcontrol.device
 
 import android.Manifest
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.IBinder
 import android.os.Parcel
@@ -18,6 +19,7 @@ class AndroidColorBackend(
             binderAvailable = findTclBinder() != null,
             canWriteSecureSettings = canWriteSecureSettings(),
             canWriteSystemSettings = canWriteSystemSettings(),
+            extraDimAvailable = isExtraDimAvailable(),
             activationState = readActivationState(),
             modeSnapshot = readModeSnapshot(),
             displaySnapshot = readDisplaySnapshot(),
@@ -120,6 +122,7 @@ class AndroidColorBackend(
 
     override fun setExtraDimEnabled(enabled: Boolean): BackendResult {
         if (!canWriteSecureSettings()) return BackendResult.SecureSettingsPermissionMissing
+        if (!isExtraDimAvailable()) return BackendResult.Failed("Extra dim unavailable")
         if (enabled && getSecureInt(REDUCE_BRIGHT_COLORS_LEVEL) == null) {
             val levelResult = putSecureInt(REDUCE_BRIGHT_COLORS_LEVEL, DEFAULT_EXTRA_DIM_LEVEL)
             if (levelResult !is BackendResult.Success) return levelResult
@@ -129,6 +132,7 @@ class AndroidColorBackend(
 
     override fun setExtraDimStrength(value: Float): BackendResult {
         if (!canWriteSecureSettings()) return BackendResult.SecureSettingsPermissionMissing
+        if (!isExtraDimAvailable()) return BackendResult.Failed("Extra dim unavailable")
         return putSecureInt(REDUCE_BRIGHT_COLORS_LEVEL, value.toExtraDimLevel())
     }
 
@@ -142,7 +146,12 @@ class AndroidColorBackend(
             if (inversionResult !is BackendResult.Success) {
                 inversionResult
             } else {
-                putSecureInt(TCL_COLOR_TEMPERATURE_ACTIVATED, 0)
+                val matrixActivationResult = putSecureInt(TCL_COLOR_TEMPERATURE_ACTIVATED, 0)
+                if (matrixActivationResult !is BackendResult.Success) {
+                    matrixActivationResult
+                } else {
+                    putSecureInt(REDUCE_BRIGHT_COLORS_ACTIVATED, 0)
+                }
             }
         } else {
             BackendResult.PermissionMissing
@@ -188,6 +197,18 @@ class AndroidColorBackend(
 
     private fun canWriteSystemSettings(): Boolean =
         Settings.System.canWrite(context)
+
+    private fun isExtraDimAvailable(): Boolean =
+        runCatching {
+            val service = context.getSystemService(COLOR_DISPLAY_SERVICE) ?: return@runCatching null
+            service.javaClass
+                .getMethod("isReduceBrightColorsAvailable")
+                .invoke(service) as? Boolean
+        }.getOrNull()
+            ?: context.packageManager.resolveActivity(
+                Intent(ACTION_REDUCE_BRIGHT_COLORS_SETTINGS),
+                PackageManager.MATCH_DEFAULT_ONLY,
+            ) != null
 
     private fun readActivationState(): ActivationState =
         runCatching {
@@ -245,6 +266,8 @@ class AndroidColorBackend(
         const val TCL_NXTVISION_INTERFACE = "tct.nxtvision.ITctComponentNxtvisionManager"
         const val TRANSACTION_SET_SF_CLIENT_MATRIX = 12
         const val MATRIX_SIZE = 16
+        const val COLOR_DISPLAY_SERVICE = "color_display"
+        const val ACTION_REDUCE_BRIGHT_COLORS_SETTINGS = "android.settings.REDUCE_BRIGHT_COLORS_SETTINGS"
         const val ACCESSIBILITY_DISPLAY_INVERSION_ENABLED = "accessibility_display_inversion_enabled"
         const val REDUCE_BRIGHT_COLORS_ACTIVATED = "reduce_bright_colors_activated"
         const val REDUCE_BRIGHT_COLORS_LEVEL = "reduce_bright_colors_level"

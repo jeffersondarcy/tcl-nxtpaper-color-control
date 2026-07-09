@@ -18,6 +18,7 @@ data class BackendCapabilities(
     val binderAvailable: Boolean,
     val canWriteSecureSettings: Boolean,
     val canWriteSystemSettings: Boolean,
+    val extraDimAvailable: Boolean = false,
     val activationState: ActivationState,
     val modeSnapshot: TclModeSnapshot = TclModeSnapshot(),
     val displaySnapshot: DisplaySnapshot = DisplaySnapshot(),
