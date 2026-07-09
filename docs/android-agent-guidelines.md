@@ -20,6 +20,10 @@ control. Keep every change small, reversible, and real-device verified.
 
 - The primary app surface is a compact dialog-style Activity with no background
   dimming, so the user can see the screen behind it while adjusting color.
+- The preferred over-reader entry point is a Quick Settings tile that launches
+  the compact Activity with `TileService.startActivityAndCollapse`; do not add a
+  true overlay service unless real-device testing proves the Activity path does
+  not stay above the current reader app.
 - Use sliders for RGB values and buttons for presets.
 - Keep touch targets large and labels short.
 - Ensure the controls stay legible under the strongest red/warm matrix.

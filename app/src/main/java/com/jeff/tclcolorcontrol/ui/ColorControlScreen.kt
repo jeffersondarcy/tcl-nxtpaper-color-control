@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -17,7 +18,12 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -42,9 +48,16 @@ fun ColorControlScreen(
     onEnableCustom: () -> Unit,
     onSwitchClassic: () -> Unit,
     onRestore: () -> Unit,
+    panelPositionLabel: String,
+    onCyclePanelPosition: () -> Unit,
+    showAddTile: Boolean,
+    onAddTile: () -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    var isCollapsed by rememberSaveable { mutableStateOf(false) }
+    var detailsExpanded by rememberSaveable { mutableStateOf(false) }
+
     Surface(
         modifier = modifier
             .widthIn(min = 320.dp, max = 520.dp)
@@ -61,49 +74,97 @@ fun ColorControlScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Header(onDismiss = onDismiss)
-            ModeControls(
-                mode = state.controlMode,
-                onEnableCustom = onEnableCustom,
-                onSwitchClassic = onSwitchClassic,
+            Header(
+                isCollapsed = isCollapsed,
+                panelPositionLabel = panelPositionLabel,
+                selectedProfileLabel = state.selected.label,
+                onCyclePanelPosition = onCyclePanelPosition,
+                onToggleCollapsed = { isCollapsed = !isCollapsed },
+                onDismiss = onDismiss,
             )
-            Presets(
-                presets = state.presets,
-                selected = state.selected,
-                enabled = state.controlsEnabled,
-                onSelectProfile = onSelectProfile,
-            )
-            ChannelSlider("Red", state.selected.red, ChannelRed, state.controlsEnabled, onRedChange, onSliderFinished)
-            ChannelSlider("Green", state.selected.green, ChannelGreen, state.controlsEnabled, onGreenChange, onSliderFinished)
-            ChannelSlider("Blue", state.selected.blue, ChannelBlue, state.controlsEnabled, onBlueChange, onSliderFinished)
-            Actions(onRestore = onRestore)
-            StatusBlock(state)
+            if (!isCollapsed) {
+                ModeControls(
+                    mode = state.controlMode,
+                    onEnableCustom = onEnableCustom,
+                    onSwitchClassic = onSwitchClassic,
+                )
+                Presets(
+                    presets = state.presets,
+                    selected = state.selected,
+                    enabled = state.controlsEnabled,
+                    onSelectProfile = onSelectProfile,
+                )
+                ChannelSlider("Red", state.selected.red, ChannelRed, state.controlsEnabled, onRedChange, onSliderFinished)
+                ChannelSlider("Green", state.selected.green, ChannelGreen, state.controlsEnabled, onGreenChange, onSliderFinished)
+                ChannelSlider("Blue", state.selected.blue, ChannelBlue, state.controlsEnabled, onBlueChange, onSliderFinished)
+                Actions(
+                    showAddTile = showAddTile,
+                    onAddTile = onAddTile,
+                    onRestore = onRestore,
+                )
+                Details(
+                    expanded = detailsExpanded,
+                    onToggle = { detailsExpanded = !detailsExpanded },
+                    state = state,
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun Header(onDismiss: () -> Unit) {
+private fun Header(
+    isCollapsed: Boolean,
+    panelPositionLabel: String,
+    selectedProfileLabel: String,
+    onCyclePanelPosition: () -> Unit,
+    onToggleCollapsed: () -> Unit,
+    onDismiss: () -> Unit,
+) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        Column {
+        Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = "TCL Color",
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.SemiBold,
             )
             Text(
-                text = "Live compositor profile",
+                text = headerSubtitle(
+                    isCollapsed = isCollapsed,
+                    selectedProfileLabel = selectedProfileLabel,
+                    panelPositionLabel = panelPositionLabel,
+                ),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        OutlinedButton(onClick = onDismiss) {
-            Text("Close")
+        Row(
+            modifier = Modifier.width(176.dp),
+            horizontalArrangement = Arrangement.End,
+        ) {
+            TextButton(onClick = onCyclePanelPosition) {
+                Text("Move")
+            }
+            TextButton(onClick = onToggleCollapsed) {
+                Text(if (isCollapsed) "Show" else "Hide")
+            }
+            TextButton(onClick = onDismiss) {
+                Text("Close")
+            }
         }
     }
+}
+
+private fun headerSubtitle(
+    isCollapsed: Boolean,
+    selectedProfileLabel: String,
+    panelPositionLabel: String,
+): String {
+    val modeLabel = if (isCollapsed) selectedProfileLabel else "Live compositor profile"
+    return "$modeLabel / $panelPositionLabel"
 }
 
 @Composable
@@ -217,13 +278,44 @@ private fun ChannelSlider(
 
 @Composable
 private fun Actions(
+    showAddTile: Boolean,
+    onAddTile: () -> Unit,
     onRestore: () -> Unit,
 ) {
-    OutlinedButton(
-        onClick = onRestore,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Text("Restore baseline")
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (showAddTile) {
+            Button(
+                onClick = onAddTile,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Add QS tile")
+            }
+        }
+        OutlinedButton(
+            onClick = onRestore,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("Restore baseline")
+        }
+    }
+}
+
+@Composable
+private fun Details(
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    state: ColorControlUiState,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        TextButton(
+            onClick = onToggle,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(if (expanded) "Hide details" else "Details")
+        }
+        if (expanded) {
+            StatusBlock(state)
+        }
     }
 }
 
@@ -293,6 +385,10 @@ private fun ColorControlScreenPreview() {
             onEnableCustom = {},
             onSwitchClassic = {},
             onRestore = {},
+            panelPositionLabel = "Top",
+            onCyclePanelPosition = {},
+            showAddTile = true,
+            onAddTile = {},
             onDismiss = {},
         )
     }
