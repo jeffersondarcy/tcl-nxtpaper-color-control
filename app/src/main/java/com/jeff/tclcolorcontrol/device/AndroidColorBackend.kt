@@ -37,8 +37,9 @@ class AndroidColorBackend(
 
     override fun readDisplaySnapshot(): DisplaySnapshot {
         val rawBrightness = getSystemInt(Settings.System.SCREEN_BRIGHTNESS)
-        val brightness = rawBrightness?.coerceIn(MIN_BRIGHTNESS, MAX_BRIGHTNESS)?.toFloat()
-            ?.div(MAX_BRIGHTNESS.toFloat())
+        val brightness = rawBrightness?.coerceIn(MIN_SCREEN_BRIGHTNESS_SETTING, MAX_SCREEN_BRIGHTNESS_SETTING)
+            ?.toFloat()
+            ?.div(MAX_SCREEN_BRIGHTNESS_SETTING.toFloat())
         val autoBrightness = when (getSystemInt(Settings.System.SCREEN_BRIGHTNESS_MODE)) {
             Settings.System.SCREEN_BRIGHTNESS_MODE_AUTOMATIC -> true
             Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL -> false
@@ -93,8 +94,7 @@ class AndroidColorBackend(
         if (!canWriteSystemSettings()) return BackendResult.SystemSettingsPermissionMissing
         return putSystemInt(
             Settings.System.SCREEN_BRIGHTNESS,
-            (value.coerceIn(BRIGHTNESS_RANGE) * MAX_BRIGHTNESS).roundToInt()
-                .coerceIn(MIN_WRITABLE_BRIGHTNESS, MAX_BRIGHTNESS),
+            value.toScreenBrightnessSetting(),
         )
     }
 
@@ -223,9 +223,6 @@ class AndroidColorBackend(
         const val TCL_NXTVISION_INTERFACE = "tct.nxtvision.ITctComponentNxtvisionManager"
         const val TRANSACTION_SET_SF_CLIENT_MATRIX = 12
         const val MATRIX_SIZE = 16
-        const val MIN_BRIGHTNESS = 0
-        const val MIN_WRITABLE_BRIGHTNESS = 8
-        const val MAX_BRIGHTNESS = 255
         const val ACCESSIBILITY_DISPLAY_INVERSION_ENABLED = "accessibility_display_inversion_enabled"
         const val TCL_COLOR_TEMPERATURE_ACTIVATED = "tct_color_temperature_activated"
         const val TCL_COLOR_TEMPERATURE_MATRIX = "tct_color_temperature_matrix"
@@ -235,6 +232,13 @@ class AndroidColorBackend(
         const val EYEPROTECT_PERSONALIZED_SET = "eyeprotect_persionalize_set"
         const val COLOR_MODE_VALUE = "color_mode_value"
         const val ADVANCED_COLOR_MODE_VALUE = "adv_color_mode_value"
-        val BRIGHTNESS_RANGE = 0f..1f
     }
 }
+
+internal const val MIN_SCREEN_BRIGHTNESS_SETTING = 0
+internal const val MAX_SCREEN_BRIGHTNESS_SETTING = 255
+internal val SCREEN_BRIGHTNESS_RANGE = 0f..1f
+
+internal fun Float.toScreenBrightnessSetting(): Int =
+    (coerceIn(SCREEN_BRIGHTNESS_RANGE) * MAX_SCREEN_BRIGHTNESS_SETTING).roundToInt()
+        .coerceIn(MIN_SCREEN_BRIGHTNESS_SETTING, MAX_SCREEN_BRIGHTNESS_SETTING)
