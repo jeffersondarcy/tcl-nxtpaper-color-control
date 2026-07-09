@@ -20,37 +20,6 @@ class ColorProfileTest {
     }
 
     @Test
-    fun invertedRedProfileCreatesExpectedAffineMatrix() {
-        assertArrayEquals(
-            floatArrayOf(
-                -1.0f, 0f, 0f, 1.0f,
-                0f, -0.25f, 0f, 0.25f,
-                0f, 0f, -0.02f, 0.02f,
-                0f, 0f, 0f, 1.0f,
-            ),
-            ColorProfiles.Red.toMatrix(inverted = true),
-            0.0001f,
-        )
-    }
-
-    @Test
-    fun invertedRedProfileKeepsWarmOutputAfterInversion() {
-        val matrix = ColorProfiles.Red.toMatrix(inverted = true)
-
-        assertArrayEquals(
-            floatArrayOf(0f, 0f, 0f),
-            matrix.applyTo(red = 1f, green = 1f, blue = 1f),
-            0.0001f,
-        )
-        assertArrayEquals(
-            floatArrayOf(1f, 0.25f, 0.02f),
-            matrix.applyTo(red = 0f, green = 0f, blue = 0f),
-            0.0001f,
-        )
-        assertEquals(0f, matrix.applyTo(red = 0f, green = 0f, blue = 1f)[2], 0.0001f)
-    }
-
-    @Test
     fun customProfileClampsChannels() {
         val profile = ColorProfile.custom(red = 2f, green = -1f, blue = 0.5f)
 
@@ -73,10 +42,3 @@ class ColorProfileTest {
         )
     }
 }
-
-private fun FloatArray.applyTo(red: Float, green: Float, blue: Float): FloatArray =
-    floatArrayOf(
-        this[0] * red + this[1] * green + this[2] * blue + this[3],
-        this[4] * red + this[5] * green + this[6] * blue + this[7],
-        this[8] * red + this[9] * green + this[10] * blue + this[11],
-    )

@@ -15,23 +15,10 @@ data class ColorProfile(
         require(blue in CHANNEL_RANGE) { "blue must be in 0.0..1.0" }
     }
 
-    fun toMatrix(inverted: Boolean = false): FloatArray = if (inverted) {
-        toInvertedMatrix()
-    } else {
-        toNormalMatrix()
-    }
-
-    private fun toNormalMatrix(): FloatArray = floatArrayOf(
+    fun toMatrix(): FloatArray = floatArrayOf(
         red, 0f, 0f, 0f,
         0f, green, 0f, 0f,
         0f, 0f, blue, 0f,
-        0f, 0f, 0f, 1f,
-    )
-
-    private fun toInvertedMatrix(): FloatArray = floatArrayOf(
-        -red, 0f, 0f, red,
-        0f, -green, 0f, green,
-        0f, 0f, -blue, blue,
         0f, 0f, 0f, 1f,
     )
 

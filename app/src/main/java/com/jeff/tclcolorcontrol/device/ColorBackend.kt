@@ -66,6 +66,7 @@ data class DisplaySnapshot(
     val brightness: Float? = null,
     val rawBrightness: Int? = null,
     val autoBrightness: Boolean? = null,
+    val colorInversionEnabled: Boolean? = null,
 )
 
 sealed interface BackendResult {

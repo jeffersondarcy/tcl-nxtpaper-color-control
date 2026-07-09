@@ -73,6 +73,41 @@ class ColorControlViewModelTest {
     }
 
     @Test
+    fun inversionControlRequiresBinderAndSecureSettingsPermission() {
+        val missingPermissionViewModel = ColorControlViewModel(
+            backend = FakeBackend(
+                applyResult = BackendResult.Success,
+                capabilities = BackendCapabilities(
+                    binderAvailable = true,
+                    canWriteSecureSettings = false,
+                    canWriteSystemSettings = false,
+                    activationState = ActivationState.Active,
+                ),
+            ),
+            profileStore = InMemoryProfileStore(),
+            liveApplyScope = testScope(),
+            applyDispatcher = Dispatchers.Unconfined,
+        )
+        val grantedViewModel = ColorControlViewModel(
+            backend = FakeBackend(
+                applyResult = BackendResult.Success,
+                capabilities = BackendCapabilities(
+                    binderAvailable = true,
+                    canWriteSecureSettings = true,
+                    canWriteSystemSettings = false,
+                    activationState = ActivationState.Active,
+                ),
+            ),
+            profileStore = InMemoryProfileStore(),
+            liveApplyScope = testScope(),
+            applyDispatcher = Dispatchers.Unconfined,
+        )
+
+        assertFalse(missingPermissionViewModel.uiState.value.inversionControlEnabled)
+        assertTrue(grantedViewModel.uiState.value.inversionControlEnabled)
+    }
+
+    @Test
     fun togglingInversionSavesAndAppliesCurrentProfileAsInverted() {
         val store = InMemoryProfileStore()
         val backend = FakeBackend(applyResult = BackendResult.Success)
@@ -113,6 +148,22 @@ class ColorControlViewModelTest {
         val store = InMemoryProfileStore()
         val viewModel = ColorControlViewModel(
             backend = FakeBackend(applyResult = BackendResult.Failed("rejected")),
+            profileStore = store,
+            liveApplyScope = testScope(),
+            applyDispatcher = Dispatchers.Unconfined,
+        )
+
+        viewModel.setInversionEnabled(true)
+
+        assertFalse(viewModel.uiState.value.inversionEnabled)
+        assertFalse(store.savedInversionEnabled)
+    }
+
+    @Test
+    fun permissionMissingInversionApplyDoesNotPersistInversion() {
+        val store = InMemoryProfileStore()
+        val viewModel = ColorControlViewModel(
+            backend = FakeBackend(applyResult = BackendResult.PermissionMissing),
             profileStore = store,
             liveApplyScope = testScope(),
             applyDispatcher = Dispatchers.Unconfined,
@@ -211,6 +262,25 @@ class ColorControlViewModelTest {
         assertFalse(store.savedInversionEnabled)
     }
 
+    @Test
+    fun failedRestoreBaselineDoesNotClearPersistedInversion() {
+        val store = InMemoryProfileStore(savedInversionEnabled = true)
+        val viewModel = ColorControlViewModel(
+            backend = FakeBackend(
+                applyResult = BackendResult.Success,
+                restoreResult = BackendResult.PermissionMissing,
+            ),
+            profileStore = store,
+            liveApplyScope = testScope(),
+            applyDispatcher = Dispatchers.Unconfined,
+        )
+
+        viewModel.restoreBaseline()
+
+        assertTrue(viewModel.uiState.value.inversionEnabled)
+        assertTrue(store.savedInversionEnabled)
+    }
+
     private class FakeBackend(
         private val applyResult: BackendResult,
         private var capabilities: BackendCapabilities = BackendCapabilities(
@@ -220,6 +290,7 @@ class ColorControlViewModelTest {
             activationState = ActivationState.Unknown,
         ),
         private val systemSettingsResult: BackendResult = BackendResult.Success,
+        private val restoreResult: BackendResult = BackendResult.Success,
     ) : ColorBackend {
         var appliedProfile: ColorProfile? = null
         var appliedInverted: Boolean = false
@@ -236,10 +307,18 @@ class ColorControlViewModelTest {
         override fun apply(profile: ColorProfile, inverted: Boolean): BackendResult {
             appliedProfile = profile
             appliedInverted = inverted
+            if (applyResult == BackendResult.Success) {
+                updateDisplaySnapshot(colorInversionEnabled = inverted)
+            }
             return applyResult
         }
 
-        override fun restoreBaseline(): BackendResult = BackendResult.Success
+        override fun restoreBaseline(): BackendResult {
+            if (restoreResult == BackendResult.Success) {
+                updateDisplaySnapshot(colorInversionEnabled = false)
+            }
+            return restoreResult
+        }
 
         override fun setBrightness(value: Float): BackendResult {
             writtenBrightness = value
@@ -257,11 +336,13 @@ class ColorControlViewModelTest {
         private fun updateDisplaySnapshot(
             brightness: Float? = capabilities.displaySnapshot.brightness,
             autoBrightness: Boolean? = capabilities.displaySnapshot.autoBrightness,
+            colorInversionEnabled: Boolean? = capabilities.displaySnapshot.colorInversionEnabled,
         ) {
             capabilities = capabilities.copy(
                 displaySnapshot = capabilities.displaySnapshot.copy(
                     brightness = brightness,
                     autoBrightness = autoBrightness,
+                    colorInversionEnabled = colorInversionEnabled,
                 ),
             )
         }

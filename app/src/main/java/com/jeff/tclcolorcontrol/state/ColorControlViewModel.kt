@@ -41,7 +41,7 @@ data class ColorControlUiState(
         get() = controlMode == ControlMode.CustomMatrix && capabilities.binderAvailable
 
     val inversionControlEnabled: Boolean
-        get() = capabilities.binderAvailable
+        get() = capabilities.binderAvailable && capabilities.canWriteSecureSettings
 
     val brightnessControlsEnabled: Boolean
         get() = capabilities.canWriteSystemSettings && !autoBrightness
@@ -142,7 +142,7 @@ class ColorControlViewModel(
             val result = withContext(applyDispatcher) {
                 backend.apply(profile, enabled)
             }
-            if (result.matrixWasSent) {
+            if (result == BackendResult.Success) {
                 profileStore.saveInversionEnabled(enabled)
                 profileStore.save(profile)
                 _uiState.update {
@@ -155,7 +155,7 @@ class ColorControlViewModel(
             refreshAfter(
                 result = result,
                 successMessage = if (enabled) "Inverted ${profile.label}" else "Normal ${profile.label}",
-                forceMode = if (result.matrixWasSent) ControlMode.CustomMatrix else null,
+                forceMode = if (result == BackendResult.Success) ControlMode.CustomMatrix else null,
             )
         }
     }
@@ -196,6 +196,7 @@ class ColorControlViewModel(
         _uiState.update {
             it.copy(
                 capabilities = capabilities,
+                inversionEnabled = capabilities.displaySnapshot.colorInversionEnabled ?: it.inversionEnabled,
                 brightness = capabilities.displaySnapshot.brightness ?: it.brightness,
                 autoBrightness = capabilities.displaySnapshot.autoBrightness ?: it.autoBrightness,
             )
@@ -211,23 +212,29 @@ class ColorControlViewModel(
             refreshAfter(
                 result = result,
                 successMessage = "Custom matrix off; TCL Classic keys unchanged",
-                forceMode = ControlMode.ClassicSafe,
+                forceMode = if (result == BackendResult.Success) ControlMode.ClassicSafe else null,
             )
         }
     }
 
     fun restoreBaseline() {
         val result = backend.restoreBaseline()
-        profileStore.save(ColorProfiles.Baseline)
-        profileStore.saveInversionEnabled(false)
-        _uiState.update {
-            it.copy(
-                selected = ColorProfiles.Baseline,
-                inversionEnabled = false,
-                controlMode = ControlMode.ClassicSafe,
-            )
+        if (result == BackendResult.Success) {
+            profileStore.save(ColorProfiles.Baseline)
+            profileStore.saveInversionEnabled(false)
+            _uiState.update {
+                it.copy(
+                    selected = ColorProfiles.Baseline,
+                    inversionEnabled = false,
+                    controlMode = ControlMode.ClassicSafe,
+                )
+            }
         }
-        refreshAfter(result, successMessage = "Baseline restored", forceMode = ControlMode.ClassicSafe)
+        refreshAfter(
+            result = result,
+            successMessage = "Baseline restored",
+            forceMode = if (result == BackendResult.Success) ControlMode.ClassicSafe else null,
+        )
     }
 
     private fun updateCustom(
@@ -289,6 +296,7 @@ class ColorControlViewModel(
         _uiState.update {
             it.copy(
                 capabilities = capabilities,
+                inversionEnabled = capabilities.displaySnapshot.colorInversionEnabled ?: it.inversionEnabled,
                 brightness = capabilities.displaySnapshot.brightness ?: it.brightness,
                 autoBrightness = capabilities.displaySnapshot.autoBrightness ?: it.autoBrightness,
                 controlMode = when {
@@ -327,9 +335,6 @@ private fun BackendResult.toStatusMessage(successMessage: String): String =
         is BackendResult.Failed -> "Failed: $message"
     }
 
-private val BackendResult.matrixWasSent: Boolean
-    get() = this == BackendResult.Success || this == BackendResult.PermissionMissing
-
 private data class LiveApplyRequest(
     val profile: ColorProfile,
     val immediate: Boolean,
@@ -342,7 +347,7 @@ private fun initialState(
 ): ColorControlUiState =
     ColorControlUiState(
         selected = selected,
-        inversionEnabled = inversionEnabled,
+        inversionEnabled = capabilities.displaySnapshot.colorInversionEnabled ?: inversionEnabled,
         capabilities = capabilities,
         brightness = capabilities.displaySnapshot.brightness ?: DEFAULT_BRIGHTNESS,
         autoBrightness = capabilities.displaySnapshot.autoBrightness ?: false,

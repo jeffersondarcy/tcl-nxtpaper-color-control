@@ -48,16 +48,26 @@ class AndroidColorBackend(
             brightness = brightness,
             rawBrightness = rawBrightness,
             autoBrightness = autoBrightness,
+            colorInversionEnabled = when (getSecureInt(ACCESSIBILITY_DISPLAY_INVERSION_ENABLED)) {
+                1 -> true
+                0 -> false
+                else -> null
+            },
         )
     }
 
     override fun apply(profile: ColorProfile, inverted: Boolean): BackendResult {
         val binder = findTclBinder() ?: return BackendResult.BinderUnavailable
-        val matrixResult = binder.callSetSurfaceFlingerMatrix(profile.toMatrix(inverted))
+        val matrixResult = binder.callSetSurfaceFlingerMatrix(profile.toMatrix())
         if (matrixResult !is BackendResult.Success) return matrixResult
 
         return if (canWriteSecureSettings()) {
-            putSecureInt(TCL_COLOR_TEMPERATURE_ACTIVATED, 1)
+            val activationResult = putSecureInt(TCL_COLOR_TEMPERATURE_ACTIVATED, 1)
+            if (activationResult !is BackendResult.Success) {
+                activationResult
+            } else {
+                putSecureInt(ACCESSIBILITY_DISPLAY_INVERSION_ENABLED, if (inverted) 1 else 0)
+            }
         } else {
             BackendResult.PermissionMissing
         }
@@ -90,7 +100,12 @@ class AndroidColorBackend(
         if (matrixResult !is BackendResult.Success) return matrixResult
 
         return if (canWriteSecureSettings()) {
-            putSecureInt(TCL_COLOR_TEMPERATURE_ACTIVATED, 0)
+            val inversionResult = putSecureInt(ACCESSIBILITY_DISPLAY_INVERSION_ENABLED, 0)
+            if (inversionResult !is BackendResult.Success) {
+                inversionResult
+            } else {
+                putSecureInt(TCL_COLOR_TEMPERATURE_ACTIVATED, 0)
+            }
         } else {
             BackendResult.PermissionMissing
         }
@@ -185,6 +200,7 @@ class AndroidColorBackend(
         const val MIN_BRIGHTNESS = 0
         const val MIN_WRITABLE_BRIGHTNESS = 8
         const val MAX_BRIGHTNESS = 255
+        const val ACCESSIBILITY_DISPLAY_INVERSION_ENABLED = "accessibility_display_inversion_enabled"
         const val TCL_COLOR_TEMPERATURE_ACTIVATED = "tct_color_temperature_activated"
         const val TCL_COLOR_TEMPERATURE_MATRIX = "tct_color_temperature_matrix"
         const val EYEPROTECT_STATUS = "eyeprotect_status"
