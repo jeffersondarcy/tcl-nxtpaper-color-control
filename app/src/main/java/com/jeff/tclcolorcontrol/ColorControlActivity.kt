@@ -41,6 +41,7 @@ class ColorControlActivity : ComponentActivity() {
         panelPositionState.value = loadPanelPosition()
         tileKnownAddedState.value = QuickSettingsTilePrompt.isKnownAdded(this)
         quickEntryState.value = intent.isQuickEntry()
+        ColorControlShortcuts.publish(this)
         configureDialogWindow(panelPositionState.value)
         handleIntent(intent)
 

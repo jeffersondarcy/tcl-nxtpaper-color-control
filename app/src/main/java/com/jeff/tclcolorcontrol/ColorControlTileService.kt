@@ -8,6 +8,7 @@ import android.service.quicksettings.TileService
 class ColorControlTileService : TileService() {
     override fun onStartListening() {
         super.onStartListening()
+        ColorControlShortcuts.publish(this)
         qsTile?.apply {
             label = getString(R.string.quick_settings_tile_label)
             subtitle = getString(R.string.quick_settings_tile_subtitle)
