@@ -4,7 +4,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -13,7 +12,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
-import androidx.compose.material3.ElevatedButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
@@ -29,7 +27,9 @@ import com.jeff.tclcolorcontrol.color.ColorProfile
 import com.jeff.tclcolorcontrol.color.ColorProfiles
 import com.jeff.tclcolorcontrol.color.percentLabel
 import com.jeff.tclcolorcontrol.device.ActivationState
+import com.jeff.tclcolorcontrol.device.TclModeSnapshot
 import com.jeff.tclcolorcontrol.state.ColorControlUiState
+import com.jeff.tclcolorcontrol.state.ControlMode
 
 @Composable
 fun ColorControlScreen(
@@ -38,7 +38,9 @@ fun ColorControlScreen(
     onRedChange: (Float) -> Unit,
     onGreenChange: (Float) -> Unit,
     onBlueChange: (Float) -> Unit,
-    onApply: () -> Unit,
+    onSliderFinished: () -> Unit,
+    onEnableCustom: () -> Unit,
+    onSwitchClassic: () -> Unit,
     onRestore: () -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
@@ -60,15 +62,21 @@ fun ColorControlScreen(
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             Header(onDismiss = onDismiss)
+            ModeControls(
+                mode = state.controlMode,
+                onEnableCustom = onEnableCustom,
+                onSwitchClassic = onSwitchClassic,
+            )
             Presets(
                 presets = state.presets,
                 selected = state.selected,
+                enabled = state.controlsEnabled,
                 onSelectProfile = onSelectProfile,
             )
-            ChannelSlider("Red", state.selected.red, ChannelRed, onRedChange)
-            ChannelSlider("Green", state.selected.green, ChannelGreen, onGreenChange)
-            ChannelSlider("Blue", state.selected.blue, ChannelBlue, onBlueChange)
-            Actions(onApply = onApply, onRestore = onRestore)
+            ChannelSlider("Red", state.selected.red, ChannelRed, state.controlsEnabled, onRedChange, onSliderFinished)
+            ChannelSlider("Green", state.selected.green, ChannelGreen, state.controlsEnabled, onGreenChange, onSliderFinished)
+            ChannelSlider("Blue", state.selected.blue, ChannelBlue, state.controlsEnabled, onBlueChange, onSliderFinished)
+            Actions(onRestore = onRestore)
             StatusBlock(state)
         }
     }
@@ -87,7 +95,7 @@ private fun Header(onDismiss: () -> Unit) {
                 fontWeight = FontWeight.SemiBold,
             )
             Text(
-                text = "Compositor profile",
+                text = "Live compositor profile",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -99,9 +107,56 @@ private fun Header(onDismiss: () -> Unit) {
 }
 
 @Composable
+private fun ModeControls(
+    mode: ControlMode,
+    onEnableCustom: () -> Unit,
+    onSwitchClassic: () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Mode", fontWeight = FontWeight.Medium)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            if (mode == ControlMode.CustomMatrix) {
+                Button(
+                    onClick = onEnableCustom,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("Custom")
+                }
+            } else {
+                OutlinedButton(
+                    onClick = onEnableCustom,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("Custom")
+                }
+            }
+            if (mode == ControlMode.ClassicSafe) {
+                Button(
+                    onClick = onSwitchClassic,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("Classic safe")
+                }
+            } else {
+                OutlinedButton(
+                    onClick = onSwitchClassic,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("Classic safe")
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun Presets(
     presets: List<ColorProfile>,
     selected: ColorProfile,
+    enabled: Boolean,
     onSelectProfile: (ColorProfile) -> Unit,
 ) {
     Row(
@@ -111,11 +166,17 @@ private fun Presets(
         presets.forEach { profile ->
             val isSelected = selected.id == profile.id
             if (isSelected) {
-                Button(onClick = { onSelectProfile(profile) }) {
+                Button(
+                    onClick = { onSelectProfile(profile) },
+                    enabled = enabled,
+                ) {
                     Text(profile.label)
                 }
             } else {
-                OutlinedButton(onClick = { onSelectProfile(profile) }) {
+                OutlinedButton(
+                    onClick = { onSelectProfile(profile) },
+                    enabled = enabled,
+                ) {
                     Text(profile.label)
                 }
             }
@@ -128,7 +189,9 @@ private fun ChannelSlider(
     label: String,
     value: Float,
     color: Color,
+    enabled: Boolean,
     onValueChange: (Float) -> Unit,
+    onValueChangeFinished: () -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(
@@ -141,7 +204,9 @@ private fun ChannelSlider(
         Slider(
             value = value,
             onValueChange = onValueChange,
+            onValueChangeFinished = onValueChangeFinished,
             valueRange = 0f..1f,
+            enabled = enabled,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(36.dp)
@@ -152,25 +217,13 @@ private fun ChannelSlider(
 
 @Composable
 private fun Actions(
-    onApply: () -> Unit,
     onRestore: () -> Unit,
 ) {
-    Row(
+    OutlinedButton(
+        onClick = onRestore,
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        ElevatedButton(
-            onClick = onApply,
-            modifier = Modifier.weight(1f),
-        ) {
-            Text("Apply")
-        }
-        OutlinedButton(
-            onClick = onRestore,
-            modifier = Modifier.weight(1f),
-        ) {
-            Text("Restore")
-        }
+        Text("Restore baseline")
     }
 }
 
@@ -184,9 +237,12 @@ private fun StatusBlock(state: ColorControlUiState) {
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Text(state.status, fontWeight = FontWeight.Medium)
+        Text("Mode: ${state.controlMode.label} / ${state.capabilities.modeSnapshot.modeLabel}")
         Text("Binder: ${if (state.capabilities.binderAvailable) "available" else "missing"}")
         Text("Secure settings: ${if (state.capabilities.canWriteSecureSettings) "granted" else "missing"}")
         Text("Activation: ${state.capabilities.activationState.label}")
+        Text("Eye comfort: ${state.capabilities.modeSnapshot.eyeComfortLabel}")
+        Text("Color mode: ${state.capabilities.modeSnapshot.colorModeLabel}")
     }
 }
 
@@ -195,6 +251,28 @@ private val ActivationState.label: String
         ActivationState.Active -> "active"
         ActivationState.Inactive -> "inactive"
         ActivationState.Unknown -> "unknown"
+    }
+
+private val ControlMode.label: String
+    get() = when (this) {
+        ControlMode.CustomMatrix -> "custom"
+        ControlMode.ClassicSafe -> "classic safe"
+        ControlMode.External -> "external"
+    }
+
+private val TclModeSnapshot.eyeComfortLabel: String
+    get() {
+        val status = eyeProtectStatus?.toString() ?: "?"
+        val kind = eyeProtectKind?.toString() ?: "?"
+        val classic = eyeProtectClassicMode?.toString() ?: "?"
+        return "status $status, kind $kind, classic $classic"
+    }
+
+private val TclModeSnapshot.colorModeLabel: String
+    get() {
+        val color = colorModeValue?.toString() ?: "?"
+        val advanced = advancedColorModeValue?.toString() ?: "?"
+        return "color $color, advanced $advanced"
     }
 
 private val ChannelRed = Color(0xFFB42318)
@@ -211,7 +289,9 @@ private fun ColorControlScreenPreview() {
             onRedChange = {},
             onGreenChange = {},
             onBlueChange = {},
-            onApply = {},
+            onSliderFinished = {},
+            onEnableCustom = {},
+            onSwitchClassic = {},
             onRestore = {},
             onDismiss = {},
         )

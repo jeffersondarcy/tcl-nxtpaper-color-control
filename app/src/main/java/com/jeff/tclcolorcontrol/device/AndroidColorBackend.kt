@@ -17,6 +17,19 @@ class AndroidColorBackend(
             binderAvailable = findTclBinder() != null,
             canWriteSecureSettings = canWriteSecureSettings(),
             activationState = readActivationState(),
+            modeSnapshot = readModeSnapshot(),
+        )
+
+    override fun readModeSnapshot(): TclModeSnapshot =
+        TclModeSnapshot(
+            eyeProtectStatus = getSystemInt(EYEPROTECT_STATUS),
+            eyeProtectKind = getSystemInt(EYEPROTECT_KIND),
+            eyeProtectClassicMode = getSecureInt(EYEPROTECT_CLASSIC_MODE),
+            eyeProtectPersonalizedSet = getSystemInt(EYEPROTECT_PERSONALIZED_SET),
+            colorModeValue = getSystemInt(COLOR_MODE_VALUE),
+            advancedColorModeValue = getSystemInt(ADVANCED_COLOR_MODE_VALUE),
+            matrixActive = getSecureInt(TCL_COLOR_TEMPERATURE_ACTIVATED),
+            matrix = getSecureString(TCL_COLOR_TEMPERATURE_MATRIX),
         )
 
     override fun apply(profile: ColorProfile): BackendResult {
@@ -97,11 +110,34 @@ class AndroidColorBackend(
             BackendResult.Failed(error.message ?: error.javaClass.simpleName)
         }
 
+    private fun getSecureString(name: String): String? =
+        runCatching {
+            Settings.Secure.getString(context.contentResolver, name)
+        }.getOrNull()
+
+    private fun getSecureInt(name: String): Int? =
+        getSecureString(name)?.toIntOrNull()
+
+    private fun getSystemString(name: String): String? =
+        runCatching {
+            Settings.System.getString(context.contentResolver, name)
+        }.getOrNull()
+
+    private fun getSystemInt(name: String): Int? =
+        getSystemString(name)?.toIntOrNull()
+
     private companion object {
         const val TCL_NXTVISION_SERVICE = "tct_nxtvision"
         const val TCL_NXTVISION_INTERFACE = "tct.nxtvision.ITctComponentNxtvisionManager"
         const val TRANSACTION_SET_SF_CLIENT_MATRIX = 12
         const val MATRIX_SIZE = 16
         const val TCL_COLOR_TEMPERATURE_ACTIVATED = "tct_color_temperature_activated"
+        const val TCL_COLOR_TEMPERATURE_MATRIX = "tct_color_temperature_matrix"
+        const val EYEPROTECT_STATUS = "eyeprotect_status"
+        const val EYEPROTECT_KIND = "eyeprotect_kind"
+        const val EYEPROTECT_CLASSIC_MODE = "eyeprotect_classic_mode"
+        const val EYEPROTECT_PERSONALIZED_SET = "eyeprotect_persionalize_set"
+        const val COLOR_MODE_VALUE = "color_mode_value"
+        const val ADVANCED_COLOR_MODE_VALUE = "adv_color_mode_value"
     }
 }

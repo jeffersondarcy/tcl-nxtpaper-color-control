@@ -41,7 +41,9 @@ class ColorControlActivity : ComponentActivity() {
                     onRedChange = viewModel::setRed,
                     onGreenChange = viewModel::setGreen,
                     onBlueChange = viewModel::setBlue,
-                    onApply = viewModel::applyCurrent,
+                    onSliderFinished = viewModel::finishSliderChange,
+                    onEnableCustom = viewModel::enableCustomMode,
+                    onSwitchClassic = viewModel::switchToClassicSafeMode,
                     onRestore = viewModel::restoreBaseline,
                     onDismiss = ::finish,
                 )
