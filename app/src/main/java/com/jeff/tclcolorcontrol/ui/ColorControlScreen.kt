@@ -34,7 +34,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -76,6 +76,8 @@ fun ColorControlScreen(
     onEnableCustom: () -> Unit,
     onSwitchClassic: () -> Unit,
     onRestore: () -> Unit,
+    isCollapsed: Boolean,
+    onCollapsedChange: (Boolean) -> Unit,
     onMovePanel: (Float, Float) -> Unit,
     onMovePanelFinished: () -> Unit,
     onPanelSizeChanged: (Int, Int) -> Unit,
@@ -84,8 +86,7 @@ fun ColorControlScreen(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var isCollapsed by rememberSaveable { mutableStateOf(false) }
-    var detailsExpanded by rememberSaveable { mutableStateOf(false) }
+    var detailsExpanded by remember { mutableStateOf(false) }
 
     Surface(
         modifier = modifier
@@ -105,7 +106,7 @@ fun ColorControlScreen(
                 onInversionChange = onInversionChange,
                 onMovePanel = onMovePanel,
                 onMovePanelFinished = onMovePanelFinished,
-                onExpand = { isCollapsed = false },
+                onExpand = { onCollapsedChange(false) },
                 onDismiss = onDismiss,
             )
             return@Surface
@@ -121,7 +122,7 @@ fun ColorControlScreen(
                 selectedProfileLabel = state.selected.label,
                 onMovePanel = onMovePanel,
                 onMovePanelFinished = onMovePanelFinished,
-                onMinimize = { isCollapsed = true },
+                onMinimize = { onCollapsedChange(true) },
                 onDismiss = onDismiss,
             )
             ModeControls(
@@ -615,6 +616,8 @@ private fun ColorControlScreenPreview() {
             onEnableCustom = {},
             onSwitchClassic = {},
             onRestore = {},
+            isCollapsed = false,
+            onCollapsedChange = {},
             onMovePanel = { _, _ -> },
             onMovePanelFinished = {},
             onPanelSizeChanged = { _, _ -> },

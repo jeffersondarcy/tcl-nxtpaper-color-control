@@ -10,4 +10,7 @@
     <string name="shortcut_open_panel_short_label">TCL Color</string>
     <string name="shortcut_open_panel_long_label">Open TCL Color</string>
     <string name="shortcut_open_panel_disabled">TCL Color shortcut unavailable</string>
+    <string name="overlay_notification_channel">Floating color controls</string>
+    <string name="overlay_notification_title">TCL Color is running</string>
+    <string name="overlay_notification_text">Floating controls are available over other apps</string>
 </resources>
