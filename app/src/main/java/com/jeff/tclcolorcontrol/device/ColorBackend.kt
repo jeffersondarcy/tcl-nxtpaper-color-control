@@ -10,6 +10,8 @@ interface ColorBackend {
     fun restoreBaseline(): BackendResult
     fun setBrightness(value: Float): BackendResult
     fun setAutoBrightness(enabled: Boolean): BackendResult
+    fun setExtraDimEnabled(enabled: Boolean): BackendResult
+    fun setExtraDimStrength(value: Float): BackendResult
 }
 
 data class BackendCapabilities(
@@ -67,12 +69,16 @@ data class DisplaySnapshot(
     val rawBrightness: Int? = null,
     val autoBrightness: Boolean? = null,
     val colorInversionEnabled: Boolean? = null,
+    val extraDimEnabled: Boolean? = null,
+    val extraDimStrength: Float? = null,
+    val rawExtraDimLevel: Int? = null,
 )
 
 sealed interface BackendResult {
     data object Success : BackendResult
     data object BinderUnavailable : BackendResult
     data object PermissionMissing : BackendResult
+    data object SecureSettingsPermissionMissing : BackendResult
     data object SystemSettingsPermissionMissing : BackendResult
     data class Failed(val message: String) : BackendResult
 }

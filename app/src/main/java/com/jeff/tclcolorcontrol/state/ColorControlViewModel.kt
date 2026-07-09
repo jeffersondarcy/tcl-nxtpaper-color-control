@@ -38,6 +38,8 @@ data class ColorControlUiState(
     val inversionEnabled: Boolean = false,
     val brightness: Float = 1f,
     val autoBrightness: Boolean = false,
+    val extraDimEnabled: Boolean = false,
+    val extraDimStrength: Float = DEFAULT_EXTRA_DIM_STRENGTH,
     val controlMode: ControlMode = ControlMode.External,
     val status: String = "Ready",
 ) {
@@ -49,6 +51,12 @@ data class ColorControlUiState(
 
     val brightnessControlsEnabled: Boolean
         get() = capabilities.canWriteSystemSettings && !autoBrightness
+
+    val extraDimControlsEnabled: Boolean
+        get() = capabilities.canWriteSecureSettings
+
+    val extraDimStrengthControlsEnabled: Boolean
+        get() = extraDimControlsEnabled && extraDimEnabled
 }
 
 enum class ControlMode {
@@ -223,6 +231,37 @@ class ColorControlViewModel(
         )
     }
 
+    fun setExtraDimEnabled(enabled: Boolean) {
+        _uiState.update {
+            it.copy(
+                extraDimEnabled = enabled,
+                status = if (enabled) "Turning Extra dim on" else "Turning Extra dim off",
+            )
+        }
+        val result = backend.setExtraDimEnabled(enabled)
+        refreshAfter(
+            result = result,
+            successMessage = if (enabled) "Extra dim on" else "Extra dim off",
+            keepMode = true,
+        )
+    }
+
+    fun setExtraDimStrength(value: Float) {
+        val strength = value.coerceIn(EXTRA_DIM_STRENGTH_RANGE)
+        _uiState.update {
+            it.copy(
+                extraDimStrength = strength,
+                status = "Setting Extra dim intensity ${(strength * 100f).toInt()}%",
+            )
+        }
+    }
+
+    fun finishExtraDimStrengthChange() {
+        val strength = _uiState.value.extraDimStrength
+        val result = backend.setExtraDimStrength(strength)
+        refreshAfter(result, successMessage = "Extra dim intensity updated", keepMode = true)
+    }
+
     fun refreshSystemState() {
         val capabilities = backend.getCapabilities()
         _uiState.update {
@@ -231,6 +270,8 @@ class ColorControlViewModel(
                 inversionEnabled = capabilities.displaySnapshot.colorInversionEnabled ?: it.inversionEnabled,
                 brightness = capabilities.displaySnapshot.brightness ?: it.brightness,
                 autoBrightness = capabilities.displaySnapshot.autoBrightness ?: it.autoBrightness,
+                extraDimEnabled = capabilities.displaySnapshot.extraDimEnabled ?: it.extraDimEnabled,
+                extraDimStrength = capabilities.displaySnapshot.extraDimStrength ?: it.extraDimStrength,
             )
         }
     }
@@ -441,6 +482,8 @@ class ColorControlViewModel(
                 inversionEnabled = capabilities.displaySnapshot.colorInversionEnabled ?: it.inversionEnabled,
                 brightness = capabilities.displaySnapshot.brightness ?: it.brightness,
                 autoBrightness = capabilities.displaySnapshot.autoBrightness ?: it.autoBrightness,
+                extraDimEnabled = capabilities.displaySnapshot.extraDimEnabled ?: it.extraDimEnabled,
+                extraDimStrength = capabilities.displaySnapshot.extraDimStrength ?: it.extraDimStrength,
                 controlMode = when {
                     forceMode != null -> forceMode
                     keepMode -> it.controlMode
@@ -474,6 +517,7 @@ private fun BackendResult.toStatusMessage(successMessage: String): String =
         BackendResult.Success -> successMessage
         BackendResult.BinderUnavailable -> "TCL service unavailable"
         BackendResult.PermissionMissing -> "Matrix sent; grant WRITE_SECURE_SETTINGS for activation"
+        BackendResult.SecureSettingsPermissionMissing -> "Grant WRITE_SECURE_SETTINGS for secure display controls"
         BackendResult.SystemSettingsPermissionMissing -> "Grant Modify system settings for brightness"
         is BackendResult.Failed -> "Failed: $message"
     }
@@ -495,11 +539,15 @@ private fun initialState(
         capabilities = capabilities,
         brightness = capabilities.displaySnapshot.brightness ?: DEFAULT_BRIGHTNESS,
         autoBrightness = capabilities.displaySnapshot.autoBrightness ?: false,
+        extraDimEnabled = capabilities.displaySnapshot.extraDimEnabled ?: false,
+        extraDimStrength = capabilities.displaySnapshot.extraDimStrength ?: DEFAULT_EXTRA_DIM_STRENGTH,
         controlMode = capabilities.toControlMode(),
     )
 
 private const val DEFAULT_BRIGHTNESS = 1f
+private const val DEFAULT_EXTRA_DIM_STRENGTH = 0.5f
 private const val CUSTOM_PROFILE_ID = "custom"
+private val EXTRA_DIM_STRENGTH_RANGE = 0f..1f
 
 private fun ColorProfile.safeForUse(): ColorProfile =
     if (id == CUSTOM_PROFILE_ID) {

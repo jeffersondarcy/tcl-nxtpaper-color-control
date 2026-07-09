@@ -45,6 +45,7 @@ class AndroidColorBackend(
             Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL -> false
             else -> null
         }
+        val rawExtraDimLevel = getSecureInt(REDUCE_BRIGHT_COLORS_LEVEL)
         return DisplaySnapshot(
             brightness = brightness,
             rawBrightness = rawBrightness,
@@ -54,6 +55,13 @@ class AndroidColorBackend(
                 0 -> false
                 else -> null
             },
+            extraDimEnabled = when (getSecureInt(REDUCE_BRIGHT_COLORS_ACTIVATED)) {
+                1 -> true
+                0 -> false
+                else -> null
+            },
+            extraDimStrength = rawExtraDimLevel?.toExtraDimStrength(),
+            rawExtraDimLevel = rawExtraDimLevel,
         )
     }
 
@@ -108,6 +116,20 @@ class AndroidColorBackend(
                 Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL
             },
         )
+    }
+
+    override fun setExtraDimEnabled(enabled: Boolean): BackendResult {
+        if (!canWriteSecureSettings()) return BackendResult.SecureSettingsPermissionMissing
+        if (enabled && getSecureInt(REDUCE_BRIGHT_COLORS_LEVEL) == null) {
+            val levelResult = putSecureInt(REDUCE_BRIGHT_COLORS_LEVEL, DEFAULT_EXTRA_DIM_LEVEL)
+            if (levelResult !is BackendResult.Success) return levelResult
+        }
+        return putSecureInt(REDUCE_BRIGHT_COLORS_ACTIVATED, if (enabled) 1 else 0)
+    }
+
+    override fun setExtraDimStrength(value: Float): BackendResult {
+        if (!canWriteSecureSettings()) return BackendResult.SecureSettingsPermissionMissing
+        return putSecureInt(REDUCE_BRIGHT_COLORS_LEVEL, value.toExtraDimLevel())
     }
 
     override fun restoreBaseline(): BackendResult {
@@ -224,6 +246,8 @@ class AndroidColorBackend(
         const val TRANSACTION_SET_SF_CLIENT_MATRIX = 12
         const val MATRIX_SIZE = 16
         const val ACCESSIBILITY_DISPLAY_INVERSION_ENABLED = "accessibility_display_inversion_enabled"
+        const val REDUCE_BRIGHT_COLORS_ACTIVATED = "reduce_bright_colors_activated"
+        const val REDUCE_BRIGHT_COLORS_LEVEL = "reduce_bright_colors_level"
         const val TCL_COLOR_TEMPERATURE_ACTIVATED = "tct_color_temperature_activated"
         const val TCL_COLOR_TEMPERATURE_MATRIX = "tct_color_temperature_matrix"
         const val EYEPROTECT_STATUS = "eyeprotect_status"
@@ -238,7 +262,18 @@ class AndroidColorBackend(
 internal const val MIN_SCREEN_BRIGHTNESS_SETTING = 0
 internal const val MAX_SCREEN_BRIGHTNESS_SETTING = 255
 internal val SCREEN_BRIGHTNESS_RANGE = 0f..1f
+internal const val MIN_EXTRA_DIM_LEVEL = 0
+internal const val MAX_EXTRA_DIM_LEVEL = 100
+internal const val DEFAULT_EXTRA_DIM_LEVEL = 50
+internal val EXTRA_DIM_STRENGTH_RANGE = 0f..1f
 
 internal fun Float.toScreenBrightnessSetting(): Int =
     (coerceIn(SCREEN_BRIGHTNESS_RANGE) * MAX_SCREEN_BRIGHTNESS_SETTING).roundToInt()
         .coerceIn(MIN_SCREEN_BRIGHTNESS_SETTING, MAX_SCREEN_BRIGHTNESS_SETTING)
+
+internal fun Float.toExtraDimLevel(): Int =
+    (coerceIn(EXTRA_DIM_STRENGTH_RANGE) * MAX_EXTRA_DIM_LEVEL).roundToInt()
+        .coerceIn(MIN_EXTRA_DIM_LEVEL, MAX_EXTRA_DIM_LEVEL)
+
+internal fun Int.toExtraDimStrength(): Float =
+    coerceIn(MIN_EXTRA_DIM_LEVEL, MAX_EXTRA_DIM_LEVEL).toFloat() / MAX_EXTRA_DIM_LEVEL.toFloat()

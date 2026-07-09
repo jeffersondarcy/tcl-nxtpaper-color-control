@@ -72,6 +72,9 @@ fun ColorControlScreen(
     onAutoBrightnessChange: (Boolean) -> Unit,
     onBrightnessChange: (Float) -> Unit,
     onBrightnessFinished: () -> Unit,
+    onExtraDimChange: (Boolean) -> Unit,
+    onExtraDimStrengthChange: (Float) -> Unit,
+    onExtraDimStrengthFinished: () -> Unit,
     onGrantSystemSettings: () -> Unit,
     onEnableCustom: () -> Unit,
     onSwitchClassic: () -> Unit,
@@ -142,12 +145,19 @@ fun ColorControlScreen(
                 inversionControlEnabled = state.inversionControlEnabled,
                 autoBrightness = state.autoBrightness,
                 brightness = state.brightness,
+                extraDimEnabled = state.extraDimEnabled,
+                extraDimStrength = state.extraDimStrength,
                 canWriteSystemSettings = state.capabilities.canWriteSystemSettings,
                 brightnessControlsEnabled = state.brightnessControlsEnabled,
+                extraDimControlsEnabled = state.extraDimControlsEnabled,
+                extraDimStrengthControlsEnabled = state.extraDimStrengthControlsEnabled,
                 onInversionChange = onInversionChange,
                 onAutoBrightnessChange = onAutoBrightnessChange,
                 onBrightnessChange = onBrightnessChange,
                 onBrightnessFinished = onBrightnessFinished,
+                onExtraDimChange = onExtraDimChange,
+                onExtraDimStrengthChange = onExtraDimStrengthChange,
+                onExtraDimStrengthFinished = onExtraDimStrengthFinished,
                 onGrantSystemSettings = onGrantSystemSettings,
             )
             Actions(
@@ -432,12 +442,19 @@ private fun DisplayControls(
     inversionControlEnabled: Boolean,
     autoBrightness: Boolean,
     brightness: Float,
+    extraDimEnabled: Boolean,
+    extraDimStrength: Float,
     canWriteSystemSettings: Boolean,
     brightnessControlsEnabled: Boolean,
+    extraDimControlsEnabled: Boolean,
+    extraDimStrengthControlsEnabled: Boolean,
     onInversionChange: (Boolean) -> Unit,
     onAutoBrightnessChange: (Boolean) -> Unit,
     onBrightnessChange: (Float) -> Unit,
     onBrightnessFinished: () -> Unit,
+    onExtraDimChange: (Boolean) -> Unit,
+    onExtraDimStrengthChange: (Float) -> Unit,
+    onExtraDimStrengthFinished: () -> Unit,
     onGrantSystemSettings: () -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -471,6 +488,20 @@ private fun DisplayControls(
                 Text("Grant brightness access")
             }
         }
+        ToggleRow(
+            label = "Make screen extra dim",
+            checked = extraDimEnabled,
+            enabled = extraDimControlsEnabled,
+            onCheckedChange = onExtraDimChange,
+        )
+        ChannelSlider(
+            label = "Intensity",
+            value = extraDimStrength,
+            color = ChannelExtraDim,
+            enabled = extraDimStrengthControlsEnabled,
+            onValueChange = onExtraDimStrengthChange,
+            onValueChangeFinished = onExtraDimStrengthFinished,
+        )
     }
 }
 
@@ -543,6 +574,7 @@ private fun StatusBlock(state: ColorControlUiState) {
         Text("Secure settings: ${if (state.capabilities.canWriteSecureSettings) "granted" else "missing"}")
         Text("System settings: ${if (state.capabilities.canWriteSystemSettings) "granted" else "missing"}")
         Text("Brightness: ${if (state.autoBrightness) "auto" else state.brightness.percentLabel()}")
+        Text("Extra dim: ${if (state.extraDimEnabled) state.extraDimStrength.percentLabel() else "off"}")
         Text("Activation: ${state.capabilities.activationState.label}")
         Text("Eye comfort: ${state.capabilities.modeSnapshot.eyeComfortLabel}")
         Text("Color mode: ${state.capabilities.modeSnapshot.colorModeLabel}")
@@ -582,6 +614,7 @@ private val ChannelRed = Color(0xFFB42318)
 private val ChannelGreen = Color(0xFF16803C)
 private val ChannelBlue = Color(0xFF175CD3)
 private val ChannelBrightness = Color(0xFF8B6F1D)
+private val ChannelExtraDim = Color(0xFF5F6B7A)
 
 @Preview(widthDp = 420)
 @Composable
@@ -598,6 +631,9 @@ private fun ColorControlScreenPreview() {
             onAutoBrightnessChange = {},
             onBrightnessChange = {},
             onBrightnessFinished = {},
+            onExtraDimChange = {},
+            onExtraDimStrengthChange = {},
+            onExtraDimStrengthFinished = {},
             onGrantSystemSettings = {},
             onEnableCustom = {},
             onSwitchClassic = {},

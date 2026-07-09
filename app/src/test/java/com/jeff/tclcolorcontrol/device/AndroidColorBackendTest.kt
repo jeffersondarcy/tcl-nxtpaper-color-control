@@ -20,4 +20,30 @@ class AndroidColorBackendTest {
         assertEquals(0, (-0.5f).toScreenBrightnessSetting())
         assertEquals(255, 1.5f.toScreenBrightnessSetting())
     }
+
+    @Test
+    fun extraDimLevelMapsFullRange() {
+        assertEquals(0, 0f.toExtraDimLevel())
+        assertEquals(50, 0.5f.toExtraDimLevel())
+        assertEquals(100, 1f.toExtraDimLevel())
+    }
+
+    @Test
+    fun extraDimLevelClampsOutOfRangeValues() {
+        assertEquals(0, (-0.5f).toExtraDimLevel())
+        assertEquals(100, 1.5f.toExtraDimLevel())
+    }
+
+    @Test
+    fun extraDimStrengthMapsFullRange() {
+        assertEquals(0f, 0.toExtraDimStrength())
+        assertEquals(0.5f, 50.toExtraDimStrength())
+        assertEquals(1f, 100.toExtraDimStrength())
+    }
+
+    @Test
+    fun extraDimStrengthClampsOutOfRangeValues() {
+        assertEquals(0f, (-10).toExtraDimStrength())
+        assertEquals(1f, 120.toExtraDimStrength())
+    }
 }
