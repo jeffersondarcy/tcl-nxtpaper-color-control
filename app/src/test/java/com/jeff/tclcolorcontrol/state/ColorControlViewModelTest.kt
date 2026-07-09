@@ -111,6 +111,73 @@ class ColorControlViewModelTest {
     }
 
     @Test
+    fun unsafeLegacyActiveCustomProfileIsSanitizedAndPersistedOnStartup() {
+        val unsafeCustom = ColorProfile("custom", "Custom", red = 0f, green = 0f, blue = 0f)
+        val expected = ColorProfile.custom(red = 0f, green = 0f, blue = 0f)
+        val store = InMemoryProfileStore(savedProfile = unsafeCustom)
+        val viewModel = ColorControlViewModel(
+            backend = FakeBackend(applyResult = BackendResult.Success),
+            profileStore = store,
+            liveApplyScope = testScope(),
+            applyDispatcher = Dispatchers.Unconfined,
+        )
+
+        assertEquals(expected, viewModel.uiState.value.selected)
+        assertEquals(expected, store.savedProfile)
+        assertEquals(expected, store.savedCustomProfile)
+    }
+
+    @Test
+    fun selectingUnsafeCustomProfileAppliesSanitizedProfile() {
+        val unsafeCustom = ColorProfile("custom", "Custom", red = 0f, green = 0f, blue = 0f)
+        val expected = ColorProfile.custom(red = 0f, green = 0f, blue = 0f)
+        val store = InMemoryProfileStore()
+        val backend = FakeBackend(
+            applyResult = BackendResult.Success,
+            capabilities = BackendCapabilities(
+                binderAvailable = true,
+                canWriteSecureSettings = true,
+                canWriteSystemSettings = false,
+                activationState = ActivationState.Active,
+            ),
+        )
+        val viewModel = ColorControlViewModel(
+            backend = backend,
+            profileStore = store,
+            liveApplyScope = testScope(),
+            applyDispatcher = Dispatchers.Unconfined,
+        )
+
+        viewModel.selectProfile(unsafeCustom)
+
+        assertEquals(expected, viewModel.uiState.value.selected)
+        assertEquals(expected, store.savedProfile)
+        assertEquals(expected, store.savedCustomProfile)
+        assertEquals(expected, backend.appliedProfile)
+    }
+
+    @Test
+    fun customButtonRestoresUnsafeSavedCustomAsSanitizedProfile() {
+        val unsafeCustom = ColorProfile("custom", "Custom", red = 0f, green = 0f, blue = 0f)
+        val expected = ColorProfile.custom(red = 0f, green = 0f, blue = 0f)
+        val store = InMemoryProfileStore(savedCustomProfile = unsafeCustom)
+        val backend = FakeBackend(applyResult = BackendResult.Success)
+        val viewModel = ColorControlViewModel(
+            backend = backend,
+            profileStore = store,
+            liveApplyScope = testScope(),
+            applyDispatcher = Dispatchers.Unconfined,
+        )
+
+        viewModel.enableCustomMode()
+
+        assertEquals(expected, viewModel.uiState.value.selected)
+        assertEquals(expected, store.savedProfile)
+        assertEquals(expected, store.savedCustomProfile)
+        assertEquals(expected, backend.appliedProfile)
+    }
+
+    @Test
     fun customButtonRestoresSavedCustomAfterPresetChainAndAppliesIt() {
         val savedCustom = ColorProfile.custom(red = 0.8f, green = 0.3f, blue = 0.1f)
         val store = InMemoryProfileStore(savedCustomProfile = savedCustom)

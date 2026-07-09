@@ -3,6 +3,7 @@ package com.jeff.tclcolorcontrol.state
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.jeff.tclcolorcontrol.color.ColorChannel
 import com.jeff.tclcolorcontrol.color.ColorProfile
 import com.jeff.tclcolorcontrol.color.ColorProfiles
 import com.jeff.tclcolorcontrol.color.clampChannel
@@ -68,7 +69,7 @@ class ColorControlViewModel(
     private val scope = liveApplyScope ?: viewModelScope
     private val colorOperationMutex = Mutex()
     private val colorOperationVersion = AtomicLong()
-    private val initialProfile = profileStore.load() ?: ColorProfiles.Red
+    private val initialProfile = (profileStore.load() ?: ColorProfiles.Red).safeForUse()
 
     private val _uiState = MutableStateFlow(
         initialState(
@@ -87,16 +88,17 @@ class ColorControlViewModel(
     }
 
     fun selectProfile(profile: ColorProfile) {
-        saveActiveProfile(profile)
+        val safeProfile = profile.safeForUse()
+        saveActiveProfile(safeProfile)
         val shouldApply = _uiState.value.controlsEnabled
         _uiState.update {
             it.copy(
-                selected = profile,
-                status = if (shouldApply) "Applying ${profile.label}" else "${profile.label} selected",
+                selected = safeProfile,
+                status = if (shouldApply) "Applying ${safeProfile.label}" else "${safeProfile.label} selected",
             )
         }
         if (shouldApply) {
-            queueLiveApply(profile, immediate = true)
+            queueLiveApply(safeProfile, immediate = true)
         }
     }
 
@@ -111,15 +113,15 @@ class ColorControlViewModel(
         }
     }
 
-    fun setRed(value: Float) = updateCustom(red = value.clampChannel())
+    fun setRed(value: Float) = updateCustom(red = value.clampChannel(), editedChannel = ColorChannel.Red)
 
-    fun setGreen(value: Float) = updateCustom(green = value.clampChannel())
+    fun setGreen(value: Float) = updateCustom(green = value.clampChannel(), editedChannel = ColorChannel.Green)
 
-    fun setBlue(value: Float) = updateCustom(blue = value.clampChannel())
+    fun setBlue(value: Float) = updateCustom(blue = value.clampChannel(), editedChannel = ColorChannel.Blue)
 
     fun applyCurrent() {
         scope.launch {
-            val profile = _uiState.value.selected
+            val profile = _uiState.value.selected.safeForUse()
             val operationVersion = nextColorOperationVersion()
             val result = applyProfileOperation(profile, _uiState.value.inversionEnabled)
             if (!isCurrentColorOperation(operationVersion)) return@launch
@@ -136,7 +138,7 @@ class ColorControlViewModel(
 
     fun enableCustomMode() {
         val customProfile = profileStore.loadCustom()
-        val profile = customProfile ?: _uiState.value.selected
+        val profile = (customProfile ?: _uiState.value.selected).safeForUse()
         saveActiveProfile(profile)
         enableCustomMatrix(
             profile = profile,
@@ -157,7 +159,7 @@ class ColorControlViewModel(
 
     fun setInversionEnabled(enabled: Boolean) {
         scope.launch {
-            val profile = _uiState.value.selected
+            val profile = _uiState.value.selected.safeForUse()
             val operationVersion = nextColorOperationVersion()
             _uiState.update {
                 it.copy(
@@ -275,8 +277,9 @@ class ColorControlViewModel(
         red: Float = _uiState.value.selected.red,
         green: Float = _uiState.value.selected.green,
         blue: Float = _uiState.value.selected.blue,
+        editedChannel: ColorChannel,
     ) {
-        val profile = ColorProfile.custom(red, green, blue)
+        val profile = ColorProfile.customAfterChannelEdit(red, green, blue, editedChannel)
         val shouldApply = _uiState.value.controlsEnabled
         saveActiveProfile(profile)
         _uiState.update {
@@ -291,15 +294,16 @@ class ColorControlViewModel(
     }
 
     private fun saveActiveProfile(profile: ColorProfile) {
-        profileStore.save(profile)
-        if (profile.id == CUSTOM_PROFILE_ID) {
-            profileStore.saveCustom(profile)
+        val safeProfile = profile.safeForUse()
+        profileStore.save(safeProfile)
+        if (safeProfile.id == CUSTOM_PROFILE_ID) {
+            profileStore.saveCustom(safeProfile)
         }
     }
 
     private fun migrateInitialCustomProfile() {
         if (initialProfile.id == CUSTOM_PROFILE_ID) {
-            profileStore.saveCustom(initialProfile)
+            saveActiveProfile(initialProfile)
         }
     }
 
@@ -363,7 +367,7 @@ class ColorControlViewModel(
     private suspend fun applyProfileOperation(profile: ColorProfile, inverted: Boolean): BackendResult =
         withContext(applyDispatcher) {
             colorOperationMutex.withLock {
-                backend.apply(profile, inverted)
+                backend.apply(profile.safeForUse(), inverted)
             }
         }
 
@@ -371,10 +375,11 @@ class ColorControlViewModel(
         withContext(applyDispatcher) {
             colorOperationMutex.withLock {
                 val state = _uiState.value
-                if (state.controlMode != ControlMode.CustomMatrix || state.selected != profile) {
+                val safeProfile = profile.safeForUse()
+                if (state.controlMode != ControlMode.CustomMatrix || state.selected.safeForUse() != safeProfile) {
                     null
                 } else {
-                    backend.apply(profile, state.inversionEnabled)
+                    backend.apply(safeProfile, state.inversionEnabled)
                 }
             }
         }
@@ -393,7 +398,7 @@ class ColorControlViewModel(
                 ) {
                     null
                 } else {
-                    backend.apply(state.selected, state.inversionEnabled)
+                    backend.apply(state.selected.safeForUse(), state.inversionEnabled)
                 }
             }
         }
@@ -495,6 +500,13 @@ private fun initialState(
 
 private const val DEFAULT_BRIGHTNESS = 1f
 private const val CUSTOM_PROFILE_ID = "custom"
+
+private fun ColorProfile.safeForUse(): ColorProfile =
+    if (id == CUSTOM_PROFILE_ID) {
+        ColorProfile.custom(red, green, blue)
+    } else {
+        this
+    }
 
 private fun BackendCapabilities.toControlMode(): ControlMode =
     when (activationState) {

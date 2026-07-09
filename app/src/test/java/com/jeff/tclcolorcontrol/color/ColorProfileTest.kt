@@ -29,6 +29,40 @@ class ColorProfileTest {
     }
 
     @Test
+    fun customProfileCannotBecomeBlackWhenAllChannelsAreZero() {
+        val profile = ColorProfile.custom(red = 0f, green = 0f, blue = 0f)
+
+        val expectedChannel = ColorProfile.MIN_CUSTOM_CHANNEL_SUM / 3f
+        assertEquals(expectedChannel, profile.red, 0.0001f)
+        assertEquals(expectedChannel, profile.green, 0.0001f)
+        assertEquals(expectedChannel, profile.blue, 0.0001f)
+    }
+
+    @Test
+    fun customProfileDistributesMissingSumEvenlyWhenTooDim() {
+        val profile = ColorProfile.custom(red = 0f, green = 0.05f, blue = 0.09f)
+        val bump = (ColorProfile.MIN_CUSTOM_CHANNEL_SUM - 0.14f) / 3f
+
+        assertEquals(bump, profile.red, 0.0001f)
+        assertEquals(0.05f + bump, profile.green, 0.0001f)
+        assertEquals(0.09f + bump, profile.blue, 0.0001f)
+    }
+
+    @Test
+    fun customProfileChannelEditStopsAtMinimumTotal() {
+        val profile = ColorProfile.customAfterChannelEdit(
+            red = 0f,
+            green = 0.05f,
+            blue = 0.09f,
+            editedChannel = ColorChannel.Red,
+        )
+
+        assertEquals(0.06f, profile.red, 0.0001f)
+        assertEquals(0.05f, profile.green, 0.0001f)
+        assertEquals(0.09f, profile.blue, 0.0001f)
+    }
+
+    @Test
     fun baselineProfileIsNeutralMatrix() {
         assertArrayEquals(
             floatArrayOf(

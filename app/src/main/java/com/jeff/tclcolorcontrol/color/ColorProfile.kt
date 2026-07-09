@@ -24,16 +24,25 @@ data class ColorProfile(
 
     companion object {
         val CHANNEL_RANGE = 0f..1f
+        const val MIN_CUSTOM_CHANNEL_SUM = 0.20f
 
         fun custom(red: Float, green: Float, blue: Float): ColorProfile =
-            ColorProfile(
-                id = "custom",
-                label = "Custom",
-                red = red.clampChannel(),
-                green = green.clampChannel(),
-                blue = blue.clampChannel(),
-            )
+            safeCustomProfile(red, green, blue)
+
+        fun customAfterChannelEdit(
+            red: Float,
+            green: Float,
+            blue: Float,
+            editedChannel: ColorChannel,
+        ): ColorProfile =
+            safeCustomProfileAfterChannelEdit(red, green, blue, editedChannel)
     }
+}
+
+enum class ColorChannel {
+    Red,
+    Green,
+    Blue,
 }
 
 object ColorProfiles {
@@ -51,3 +60,45 @@ object ColorProfiles {
 fun Float.clampChannel(): Float = coerceIn(0f, 1f)
 
 fun Float.percentLabel(): String = "${(this * 100f).roundToInt()}%"
+
+private fun safeCustomProfile(red: Float, green: Float, blue: Float): ColorProfile {
+    val channels = floatArrayOf(red.clampChannel(), green.clampChannel(), blue.clampChannel())
+    val sum = channels.sum()
+    if (sum < ColorProfile.MIN_CUSTOM_CHANNEL_SUM) {
+        val bump = (ColorProfile.MIN_CUSTOM_CHANNEL_SUM - sum) / channels.size
+        channels.indices.forEach { index ->
+            channels[index] = (channels[index] + bump).clampChannel()
+        }
+    }
+    return customProfileFromChannels(channels)
+}
+
+private fun safeCustomProfileAfterChannelEdit(
+    red: Float,
+    green: Float,
+    blue: Float,
+    editedChannel: ColorChannel,
+): ColorProfile {
+    val channels = floatArrayOf(red.clampChannel(), green.clampChannel(), blue.clampChannel())
+    val editedIndex = editedChannel.index
+    val otherSum = channels.sum() - channels[editedIndex]
+    val minimumEditedValue = (ColorProfile.MIN_CUSTOM_CHANNEL_SUM - otherSum).coerceIn(ColorProfile.CHANNEL_RANGE)
+    channels[editedIndex] = channels[editedIndex].coerceAtLeast(minimumEditedValue)
+    return customProfileFromChannels(channels)
+}
+
+private val ColorChannel.index: Int
+    get() = when (this) {
+        ColorChannel.Red -> 0
+        ColorChannel.Green -> 1
+        ColorChannel.Blue -> 2
+    }
+
+private fun customProfileFromChannels(channels: FloatArray): ColorProfile =
+    ColorProfile(
+        id = "custom",
+        label = "Custom",
+        red = channels[0],
+        green = channels[1],
+        blue = channels[2],
+    )
