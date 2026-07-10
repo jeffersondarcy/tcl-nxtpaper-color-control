@@ -11,6 +11,8 @@ interface ProfileStore {
     fun saveCustom(profile: ColorProfile)
     fun loadInversionEnabled(): Boolean
     fun saveInversionEnabled(enabled: Boolean)
+    fun loadSaturation(): Float?
+    fun saveSaturation(value: Float)
 }
 
 class SharedPreferencesProfileStore(
@@ -70,6 +72,17 @@ class SharedPreferencesProfileStore(
             .apply()
     }
 
+    override fun loadSaturation(): Float? =
+        preferences.getFloat(KEY_SATURATION, Float.NaN)
+            .takeUnless(Float::isNaN)
+            ?.coerceIn(0f, 1f)
+
+    override fun saveSaturation(value: Float) {
+        preferences.edit()
+            .putFloat(KEY_SATURATION, value.coerceIn(0f, 1f))
+            .apply()
+    }
+
     private companion object {
         const val PREFERENCES_NAME = "color_profiles"
         const val KEY_ID = "id"
@@ -80,6 +93,7 @@ class SharedPreferencesProfileStore(
         const val KEY_CUSTOM_GREEN = "custom_green"
         const val KEY_CUSTOM_BLUE = "custom_blue"
         const val KEY_INVERSION_ENABLED = "inversion_enabled"
+        const val KEY_SATURATION = "saturation"
         const val CUSTOM_PROFILE_ID = "custom"
     }
 }

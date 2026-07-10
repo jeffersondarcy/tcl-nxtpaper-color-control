@@ -6,12 +6,18 @@ interface ColorBackend {
     fun getCapabilities(): BackendCapabilities
     fun readModeSnapshot(): TclModeSnapshot
     fun readDisplaySnapshot(): DisplaySnapshot
-    fun apply(profile: ColorProfile, inverted: Boolean = false): BackendResult
+    fun readExperimentalSnapshot(): ExperimentalDisplaySnapshot
+    fun apply(profile: ColorProfile, inverted: Boolean = false, saturation: Float = 1f): BackendResult
     fun restoreBaseline(): BackendResult
     fun setBrightness(value: Float): BackendResult
     fun setAutoBrightness(enabled: Boolean): BackendResult
     fun setExtraDimEnabled(enabled: Boolean): BackendResult
     fun setExtraDimStrength(value: Float): BackendResult
+    fun setScreenColorMode(mode: ScreenColorMode): BackendResult
+    fun setImageEnhancement(enabled: Boolean): BackendResult
+    fun setVideoEnhancement(enabled: Boolean): BackendResult
+    fun setBoldText(enabled: Boolean): BackendResult
+    fun setHighContrastText(enabled: Boolean): BackendResult
 }
 
 data class BackendCapabilities(
@@ -22,7 +28,35 @@ data class BackendCapabilities(
     val activationState: ActivationState,
     val modeSnapshot: TclModeSnapshot = TclModeSnapshot(),
     val displaySnapshot: DisplaySnapshot = DisplaySnapshot(),
+    val experimentalSnapshot: ExperimentalDisplaySnapshot = ExperimentalDisplaySnapshot(),
 )
+
+data class ExperimentalDisplaySnapshot(
+    val screenColorMode: ScreenColorMode? = null,
+    val rawScreenColorMode: Int? = null,
+    val rawAdvancedColorMode: Int? = null,
+    val imageEnhancementEnabled: Boolean? = null,
+    val videoEnhancementEnabled: Boolean? = null,
+    val boldTextEnabled: Boolean? = null,
+    val highContrastTextEnabled: Boolean? = null,
+)
+
+enum class ScreenColorMode(val rawValue: Int, val label: String) {
+    P3(0, "P3 / Natural"),
+    Vivid(1, "Vivid"),
+    Srgb(2, "sRGB / Gentle"),
+    AdvancedVivid(10, "Advanced Vivid"),
+    AdvancedP3(11, "Advanced P3"),
+    AdvancedSrgb(12, "Advanced sRGB"),
+    ;
+
+    val isAdvanced: Boolean
+        get() = rawValue >= 10
+
+    companion object {
+        fun fromRaw(value: Int?): ScreenColorMode? = entries.firstOrNull { it.rawValue == value }
+    }
+}
 
 enum class ActivationState {
     Active,

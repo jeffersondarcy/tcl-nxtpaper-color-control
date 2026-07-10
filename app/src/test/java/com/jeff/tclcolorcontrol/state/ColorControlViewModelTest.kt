@@ -7,15 +7,306 @@ import com.jeff.tclcolorcontrol.device.BackendCapabilities
 import com.jeff.tclcolorcontrol.device.BackendResult
 import com.jeff.tclcolorcontrol.device.ColorBackend
 import com.jeff.tclcolorcontrol.device.DisplaySnapshot
+import com.jeff.tclcolorcontrol.device.ExperimentalDisplaySnapshot
+import com.jeff.tclcolorcontrol.device.ScreenColorMode
 import com.jeff.tclcolorcontrol.device.TclModeSnapshot
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 class ColorControlViewModelTest {
+    @Test
+    fun advancedColorRequiresAdvancedModeReadback() {
+        val viewModel = ColorControlViewModel(
+            backend = FakeBackend(
+                applyResult = BackendResult.Success,
+                updateExperimentalReadback = true,
+                updateAdvancedColorReadback = false,
+            ),
+            profileStore = InMemoryProfileStore(),
+            liveApplyScope = testScope(),
+            applyDispatcher = Dispatchers.Unconfined,
+            experimentalReadbackDelayMillis = 0,
+            experimentalReadbackAttempts = 0,
+        )
+
+        viewModel.setScreenColorMode(ScreenColorMode.AdvancedSrgb)
+
+        assertEquals(
+            "Failed: screen color Advanced sRGB readback did not match",
+            viewModel.uiState.value.status,
+        )
+    }
+
+    @Test
+    fun experimentalSuccessRequiresMatchingReadback() {
+        val viewModel = ColorControlViewModel(
+            backend = FakeBackend(applyResult = BackendResult.Success),
+            profileStore = InMemoryProfileStore(),
+            liveApplyScope = testScope(),
+            applyDispatcher = Dispatchers.Unconfined,
+            experimentalReadbackDelayMillis = 0,
+            experimentalReadbackAttempts = 0,
+        )
+
+        viewModel.setImageEnhancement(true)
+
+        assertEquals(
+            "Failed: Image enhancement on readback did not match",
+            viewModel.uiState.value.status,
+        )
+        assertFalse(viewModel.uiState.value.experimental.busy)
+    }
+
+    @Test
+    fun experimentalMatchingReadbackIsReportedAsSuccess() {
+        val viewModel = ColorControlViewModel(
+            backend = FakeBackend(
+                applyResult = BackendResult.Success,
+                updateExperimentalReadback = true,
+            ),
+            profileStore = InMemoryProfileStore(),
+            liveApplyScope = testScope(),
+            applyDispatcher = Dispatchers.Unconfined,
+            experimentalReadbackDelayMillis = 0,
+            experimentalReadbackAttempts = 0,
+        )
+
+        viewModel.setImageEnhancement(true)
+
+        assertEquals("Image enhancement on", viewModel.uiState.value.status)
+        assertTrue(viewModel.uiState.value.experimental.snapshot.imageEnhancementEnabled == true)
+    }
+
+    @Test
+    fun saturationIsAppliedWithCurrentProfile() {
+        val backend = FakeBackend(applyResult = BackendResult.Success)
+        val store = InMemoryProfileStore(savedProfile = ColorProfiles.Warm)
+        val viewModel = ColorControlViewModel(
+            backend = backend,
+            profileStore = store,
+            liveApplyScope = testScope(),
+            applyDispatcher = Dispatchers.Unconfined,
+        )
+
+        viewModel.setSaturation(0.35f)
+        viewModel.finishSaturationChange()
+
+        assertEquals(ColorProfiles.Warm, backend.appliedProfile)
+        assertEquals(0.35f, backend.appliedSaturation, 0.0001f)
+        assertEquals(0.35f, store.savedSaturation!!, 0.0001f)
+    }
+
+    @Test
+    fun failedSaturationApplyRestoresLastSavedValue() {
+        val store = InMemoryProfileStore(savedSaturation = 0.8f)
+        val viewModel = ColorControlViewModel(
+            backend = FakeBackend(applyResult = BackendResult.Failed("rejected")),
+            profileStore = store,
+            liveApplyScope = testScope(),
+            applyDispatcher = Dispatchers.Unconfined,
+        )
+
+        viewModel.setSaturation(0.35f)
+        viewModel.finishSaturationChange()
+
+        assertEquals(0.8f, store.savedSaturation!!, 0.0001f)
+        assertEquals(0.8f, viewModel.uiState.value.experimental.saturation, 0.0001f)
+    }
+
+    @Test
+    fun firstLaunchMigratesSaturationFromCurrentMatrix() {
+        val profile = ColorProfile.custom(red = 1f, green = 0.63738304f, blue = 0.35f)
+        val store = InMemoryProfileStore(savedProfile = profile)
+        val backend = FakeBackend(
+            applyResult = BackendResult.Success,
+            capabilities = BackendCapabilities(
+                binderAvailable = true,
+                canWriteSecureSettings = true,
+                canWriteSystemSettings = true,
+                activationState = ActivationState.Active,
+                modeSnapshot = TclModeSnapshot(
+                    matrixActive = 1,
+                    matrix =
+                        "3f3b18fc,3d5313a9,3ce7d029,0,3e8020c5,3f12e4d3,3db36114,0," +
+                            "3cce703b,3c839491,3e71fdde,0,0,0,0,3f800000",
+                ),
+            ),
+        )
+
+        val viewModel = ColorControlViewModel(
+            backend = backend,
+            profileStore = store,
+            liveApplyScope = testScope(),
+            applyDispatcher = Dispatchers.Unconfined,
+        )
+
+        assertEquals(0.65f, viewModel.uiState.value.experimental.saturation, 0.0001f)
+        assertEquals(0.65f, store.savedSaturation!!, 0.0001f)
+        assertEquals(0, backend.applyCount)
+    }
+
+    @Test
+    fun inactiveMatrixDoesNotMigrateSaturation() {
+        val profile = ColorProfile.custom(red = 1f, green = 0.63738304f, blue = 0.35f)
+        val store = InMemoryProfileStore(savedProfile = profile)
+        val backend = FakeBackend(
+            applyResult = BackendResult.Success,
+            capabilities = BackendCapabilities(
+                binderAvailable = true,
+                canWriteSecureSettings = true,
+                canWriteSystemSettings = true,
+                activationState = ActivationState.Inactive,
+                modeSnapshot = TclModeSnapshot(
+                    matrixActive = 0,
+                    matrix =
+                        "3f3b18fc,3d5313a9,3ce7d029,0,3e8020c5,3f12e4d3,3db36114,0," +
+                            "3cce703b,3c839491,3e71fdde,0,0,0,0,3f800000",
+                ),
+            ),
+        )
+
+        val viewModel = ColorControlViewModel(
+            backend = backend,
+            profileStore = store,
+            liveApplyScope = testScope(),
+            applyDispatcher = Dispatchers.Unconfined,
+        )
+
+        assertEquals(1f, viewModel.uiState.value.experimental.saturation, 0.0001f)
+        assertEquals(1f, store.savedSaturation!!, 0.0001f)
+    }
+
+    @Test
+    fun unknownActivationDoesNotMigrateSaturation() {
+        val profile = ColorProfile.custom(red = 1f, green = 0.63738304f, blue = 0.35f)
+        val store = InMemoryProfileStore(savedProfile = profile)
+        val backend = FakeBackend(
+            applyResult = BackendResult.Success,
+            capabilities = BackendCapabilities(
+                binderAvailable = true,
+                canWriteSecureSettings = true,
+                canWriteSystemSettings = true,
+                activationState = ActivationState.Unknown,
+                modeSnapshot = TclModeSnapshot(
+                    matrixActive = 1,
+                    matrix =
+                        "3f3b18fc,3d5313a9,3ce7d029,0,3e8020c5,3f12e4d3,3db36114,0," +
+                            "3cce703b,3c839491,3e71fdde,0,0,0,0,3f800000",
+                ),
+            ),
+        )
+
+        val viewModel = ColorControlViewModel(
+            backend = backend,
+            profileStore = store,
+            liveApplyScope = testScope(),
+            applyDispatcher = Dispatchers.Unconfined,
+        )
+
+        assertEquals(1f, viewModel.uiState.value.experimental.saturation, 0.0001f)
+        assertEquals(1f, store.savedSaturation!!, 0.0001f)
+    }
+
+    @Test
+    fun saturationApplyPersistsTheSameCapturedValue() {
+        val applyStarted = CountDownLatch(1)
+        val releaseApply = CountDownLatch(1)
+        val saturationSaved = CountDownLatch(1)
+        val backend = FakeBackend(
+            applyResult = BackendResult.Success,
+            applyStarted = applyStarted,
+            releaseApply = releaseApply,
+        )
+        val store = InMemoryProfileStore(
+            savedSaturation = 0.8f,
+            saturationSaved = saturationSaved,
+        )
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val viewModel = ColorControlViewModel(
+            backend = backend,
+            profileStore = store,
+            liveApplyScope = scope,
+            applyDispatcher = Dispatchers.Default,
+        )
+
+        viewModel.setSaturation(0.35f)
+        viewModel.finishSaturationChange()
+        assertTrue(applyStarted.await(2, TimeUnit.SECONDS))
+        viewModel.setSaturation(0.9f)
+        releaseApply.countDown()
+        assertTrue(saturationSaved.await(2, TimeUnit.SECONDS))
+
+        assertEquals(0.35f, backend.appliedSaturation, 0.0001f)
+        assertEquals(0.35f, store.savedSaturation!!, 0.0001f)
+    }
+
+    @Test
+    fun failedSaturationApplyDoesNotOverwriteNewerDrag() {
+        val applyStarted = CountDownLatch(1)
+        val releaseApply = CountDownLatch(1)
+        val backend = FakeBackend(
+            applyResult = BackendResult.Failed("rejected"),
+            applyStarted = applyStarted,
+            releaseApply = releaseApply,
+        )
+        val store = InMemoryProfileStore(savedSaturation = 0.8f)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val viewModel = ColorControlViewModel(
+            backend = backend,
+            profileStore = store,
+            liveApplyScope = scope,
+            applyDispatcher = Dispatchers.Default,
+        )
+
+        viewModel.setSaturation(0.35f)
+        viewModel.finishSaturationChange()
+        assertTrue(applyStarted.await(2, TimeUnit.SECONDS))
+        viewModel.setSaturation(0.9f)
+        releaseApply.countDown()
+        assertTrue(waitUntil { viewModel.uiState.value.status == "Failed: rejected" })
+
+        assertEquals(0.9f, viewModel.uiState.value.experimental.saturation, 0.0001f)
+        assertEquals(0.8f, store.savedSaturation!!, 0.0001f)
+    }
+
+    @Test
+    fun screenColorReadbackSerializesCompositorApply() {
+        val screenColorStarted = CountDownLatch(1)
+        val releaseScreenColor = CountDownLatch(1)
+        val applyStarted = CountDownLatch(1)
+        val backend = FakeBackend(
+            applyResult = BackendResult.Success,
+            updateExperimentalReadback = true,
+            screenColorStarted = screenColorStarted,
+            releaseScreenColor = releaseScreenColor,
+            applyStarted = applyStarted,
+        )
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val viewModel = ColorControlViewModel(
+            backend = backend,
+            profileStore = InMemoryProfileStore(),
+            liveApplyScope = scope,
+            applyDispatcher = Dispatchers.Default,
+            experimentalReadbackDelayMillis = 0,
+            experimentalReadbackAttempts = 0,
+        )
+
+        viewModel.setScreenColorMode(ScreenColorMode.AdvancedSrgb)
+        assertTrue(screenColorStarted.await(2, TimeUnit.SECONDS))
+        viewModel.applyCurrent()
+
+        assertFalse(applyStarted.await(200, TimeUnit.MILLISECONDS))
+        releaseScreenColor.countDown()
+        assertTrue(applyStarted.await(2, TimeUnit.SECONDS))
+    }
+
     @Test
     fun permissionMissingResultIsVisibleInStatus() {
         val viewModel = ColorControlViewModel(
@@ -776,9 +1067,16 @@ class ColorControlViewModelTest {
         private val extraDimSnapshotReadable: Boolean = true,
         private val restoreResult: BackendResult = BackendResult.Success,
         private val applyResults: List<BackendResult> = emptyList(),
+        private val updateExperimentalReadback: Boolean = false,
+        private val updateAdvancedColorReadback: Boolean = true,
+        private val applyStarted: CountDownLatch? = null,
+        private val releaseApply: CountDownLatch? = null,
+        private val screenColorStarted: CountDownLatch? = null,
+        private val releaseScreenColor: CountDownLatch? = null,
     ) : ColorBackend {
         var appliedProfile: ColorProfile? = null
         var appliedInverted: Boolean = false
+        var appliedSaturation: Float = 1f
         var applyCount: Int = 0
         var brightness: Float? = capabilities.displaySnapshot.brightness
         var writtenBrightness: Float? = null
@@ -793,11 +1091,16 @@ class ColorControlViewModelTest {
 
         override fun readDisplaySnapshot(): DisplaySnapshot = capabilities.displaySnapshot
 
-        override fun apply(profile: ColorProfile, inverted: Boolean): BackendResult {
+        override fun readExperimentalSnapshot(): ExperimentalDisplaySnapshot = capabilities.experimentalSnapshot
+
+        override fun apply(profile: ColorProfile, inverted: Boolean, saturation: Float): BackendResult {
+            applyStarted?.countDown()
+            releaseApply?.await(2, TimeUnit.SECONDS)
             val result = applyResults.getOrNull(applyCount) ?: applyResult
             applyCount += 1
             appliedProfile = profile
             appliedInverted = inverted
+            appliedSaturation = saturation
             if (result == BackendResult.Success) {
                 updateDisplaySnapshot(colorInversionEnabled = inverted)
             }
@@ -849,6 +1152,43 @@ class ColorControlViewModelTest {
             return result
         }
 
+        override fun setScreenColorMode(mode: ScreenColorMode): BackendResult {
+            screenColorStarted?.countDown()
+            releaseScreenColor?.await(2, TimeUnit.SECONDS)
+            if (systemSettingsResult is BackendResult.Success && updateExperimentalReadback) {
+                val previous = capabilities.experimentalSnapshot
+                capabilities = capabilities.copy(
+                    experimentalSnapshot = previous.copy(
+                        screenColorMode = mode,
+                        rawScreenColorMode = mode.rawValue,
+                        rawAdvancedColorMode = if (mode.isAdvanced && updateAdvancedColorReadback) {
+                            mode.rawValue
+                        } else {
+                            previous.rawAdvancedColorMode
+                        },
+                    ),
+                )
+            }
+            return systemSettingsResult
+        }
+
+        override fun setImageEnhancement(enabled: Boolean): BackendResult {
+            if (systemSettingsResult is BackendResult.Success && updateExperimentalReadback) {
+                capabilities = capabilities.copy(
+                    experimentalSnapshot = capabilities.experimentalSnapshot.copy(
+                        imageEnhancementEnabled = enabled,
+                    ),
+                )
+            }
+            return systemSettingsResult
+        }
+
+        override fun setVideoEnhancement(enabled: Boolean): BackendResult = systemSettingsResult
+
+        override fun setBoldText(enabled: Boolean): BackendResult = systemSettingsResult
+
+        override fun setHighContrastText(enabled: Boolean): BackendResult = systemSettingsResult
+
         private fun nextExtraDimResult(): BackendResult {
             val result = extraDimResults.getOrNull(extraDimCallCount) ?: extraDimResult
             extraDimCallCount += 1
@@ -872,12 +1212,18 @@ class ColorControlViewModelTest {
                 ),
             )
         }
+
+        fun setExperimentalSnapshot(snapshot: ExperimentalDisplaySnapshot) {
+            capabilities = capabilities.copy(experimentalSnapshot = snapshot)
+        }
     }
 
     private class InMemoryProfileStore(
         var savedInversionEnabled: Boolean = false,
         var savedProfile: ColorProfile? = null,
         var savedCustomProfile: ColorProfile? = null,
+        var savedSaturation: Float? = null,
+        private val saturationSaved: CountDownLatch? = null,
     ) : ProfileStore {
         override fun load(): ColorProfile? = savedProfile
 
@@ -896,7 +1242,26 @@ class ColorControlViewModelTest {
         override fun saveInversionEnabled(enabled: Boolean) {
             savedInversionEnabled = enabled
         }
+
+        override fun loadSaturation(): Float? = savedSaturation
+
+        override fun saveSaturation(value: Float) {
+            savedSaturation = value
+            saturationSaved?.countDown()
+        }
     }
 
     private fun testScope(): CoroutineScope = CoroutineScope(Dispatchers.Unconfined)
+
+    private fun waitUntil(
+        timeoutMillis: Long = 2_000,
+        condition: () -> Boolean,
+    ): Boolean {
+        val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis)
+        while (System.nanoTime() < deadline) {
+            if (condition()) return true
+            Thread.sleep(10)
+        }
+        return condition()
+    }
 }

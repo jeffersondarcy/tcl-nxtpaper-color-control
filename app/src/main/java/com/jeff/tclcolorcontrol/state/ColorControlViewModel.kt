@@ -7,10 +7,13 @@ import com.jeff.tclcolorcontrol.color.ColorChannel
 import com.jeff.tclcolorcontrol.color.ColorProfile
 import com.jeff.tclcolorcontrol.color.ColorProfiles
 import com.jeff.tclcolorcontrol.color.clampChannel
+import com.jeff.tclcolorcontrol.color.inferSaturationFromMatrix
 import com.jeff.tclcolorcontrol.device.ActivationState
 import com.jeff.tclcolorcontrol.device.BackendCapabilities
 import com.jeff.tclcolorcontrol.device.BackendResult
 import com.jeff.tclcolorcontrol.device.ColorBackend
+import com.jeff.tclcolorcontrol.device.ExperimentalDisplaySnapshot
+import com.jeff.tclcolorcontrol.device.ScreenColorMode
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -40,6 +43,7 @@ data class ColorControlUiState(
     val autoBrightness: Boolean = false,
     val extraDimEnabled: Boolean = false,
     val extraDimStrength: Float = DEFAULT_EXTRA_DIM_STRENGTH,
+    val experimental: ExperimentalUiState = ExperimentalUiState(),
     val controlMode: ControlMode = ControlMode.External,
     val status: String = "Ready",
 ) {
@@ -59,6 +63,12 @@ data class ColorControlUiState(
         get() = extraDimControlsEnabled && extraDimEnabled
 }
 
+data class ExperimentalUiState(
+    val snapshot: ExperimentalDisplaySnapshot = ExperimentalDisplaySnapshot(),
+    val saturation: Float = 1f,
+    val busy: Boolean = false,
+)
+
 enum class ControlMode {
     CustomMatrix,
     ClassicSafe,
@@ -72,24 +82,37 @@ class ColorControlViewModel(
     private val applyDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val liveApplyDelayMillis: Long = LIVE_APPLY_DELAY_MILLIS,
     private val postInversionReapplyDelayMillis: Long = POST_INVERSION_REAPPLY_DELAY_MILLIS,
+    private val experimentalReadbackDelayMillis: Long = EXPERIMENTAL_READBACK_DELAY_MILLIS,
+    private val experimentalReadbackAttempts: Int = EXPERIMENTAL_READBACK_ATTEMPTS,
 ) : ViewModel() {
     private val liveRequests = Channel<LiveApplyRequest>(Channel.CONFLATED)
     private val scope = liveApplyScope ?: viewModelScope
     private val colorOperationMutex = Mutex()
+    private val experimentalOperationMutex = Mutex()
     private val colorOperationVersion = AtomicLong()
+    private val experimentalOperationVersion = AtomicLong()
     private val initialProfile = (profileStore.load() ?: ColorProfiles.Red).safeForUse()
+    private val initialCapabilities = backend.getCapabilities()
+    private val storedSaturation = profileStore.loadSaturation()
+    private val initialSaturation = (
+        storedSaturation ?: initialCapabilities.activeMatrixSaturation(initialProfile) ?: DEFAULT_SATURATION
+    ).coerceIn(SATURATION_RANGE)
 
     private val _uiState = MutableStateFlow(
         initialState(
             selected = initialProfile,
             inversionEnabled = profileStore.loadInversionEnabled(),
-            capabilities = backend.getCapabilities(),
+            capabilities = initialCapabilities,
+            saturation = initialSaturation,
         )
     )
     val uiState: StateFlow<ColorControlUiState> = _uiState.asStateFlow()
     private var lastKnownExtraDimStrength = _uiState.value.extraDimStrength
 
     init {
+        if (storedSaturation == null) {
+            profileStore.saveSaturation(initialSaturation)
+        }
         migrateInitialCustomProfile()
         scope.launch {
             processLiveRequests()
@@ -290,8 +313,201 @@ class ColorControlViewModel(
                 autoBrightness = capabilities.displaySnapshot.autoBrightness ?: it.autoBrightness,
                 extraDimEnabled = capabilities.displaySnapshot.extraDimEnabled ?: it.extraDimEnabled,
                 extraDimStrength = capabilities.displaySnapshot.extraDimStrength ?: it.extraDimStrength,
+                experimental = it.experimental.withSnapshot(capabilities.experimentalSnapshot),
             )
         }
+    }
+
+    fun refreshExperimentalState() {
+        scope.launch {
+            val operationVersion = experimentalOperationVersion.incrementAndGet()
+            _uiState.update { it.copy(experimental = it.experimental.copy(busy = true)) }
+            val capabilities = withContext(applyDispatcher) {
+                experimentalOperationMutex.withLock { backend.getCapabilities() }
+            }
+            if (experimentalOperationVersion.get() != operationVersion) return@launch
+            _uiState.update {
+                it.copy(
+                    capabilities = capabilities,
+                    inversionEnabled = capabilities.displaySnapshot.colorInversionEnabled ?: it.inversionEnabled,
+                    controlMode = capabilities.toControlMode(),
+                    experimental = it.experimental
+                        .withSnapshot(capabilities.experimentalSnapshot)
+                        .copy(busy = false),
+                    status = "Experimental settings refreshed",
+                )
+            }
+        }
+    }
+
+    fun setSaturation(value: Float) {
+        val saturation = value.coerceIn(0f..1f)
+        _uiState.update {
+            it.copy(
+                experimental = it.experimental.copy(saturation = saturation),
+                status = "Saturation ${(saturation * 100f).toInt()}% selected",
+            )
+        }
+    }
+
+    fun finishSaturationChange() {
+        scope.launch {
+            val state = _uiState.value
+            val previousSaturation = profileStore.loadSaturation() ?: DEFAULT_SATURATION
+            val operationVersion = nextColorOperationVersion()
+            val result = applyProfileOperation(
+                profile = state.selected,
+                inverted = state.inversionEnabled,
+                saturation = state.experimental.saturation,
+            )
+            if (!isCurrentColorOperation(operationVersion)) return@launch
+            if (result is BackendResult.Success) {
+                profileStore.saveSaturation(state.experimental.saturation)
+            }
+            refreshAfter(result, "Saturation ${(state.experimental.saturation * 100f).toInt()}% applied")
+            if (result !is BackendResult.Success) {
+                _uiState.update {
+                    if (it.experimental.saturation == state.experimental.saturation) {
+                        it.copy(experimental = it.experimental.copy(saturation = previousSaturation))
+                    } else {
+                        it
+                    }
+                }
+            }
+        }
+    }
+
+    fun setScreenColorMode(mode: ScreenColorMode) = runExperimentalOperation(
+        successMessage = "Screen color set to ${mode.label}",
+        expectedDescription = "screen color ${mode.label}",
+        readback = { snapshot ->
+            snapshot.rawScreenColorMode == mode.rawValue &&
+                (!mode.isAdvanced || snapshot.rawAdvancedColorMode == mode.rawValue)
+        },
+        expectedValue = true,
+        serializeWithColorOperations = true,
+    ) { backend.setScreenColorMode(mode) }
+
+    fun setImageEnhancement(enabled: Boolean) = runExperimentalToggle(
+        enabled,
+        "Image enhancement",
+        { it.imageEnhancementEnabled },
+        backend::setImageEnhancement,
+    )
+
+    fun setVideoEnhancement(enabled: Boolean) = runExperimentalToggle(
+        enabled,
+        "Video enhancement",
+        { it.videoEnhancementEnabled },
+        backend::setVideoEnhancement,
+    )
+
+    fun setBoldText(enabled: Boolean) = runExperimentalToggle(
+        enabled,
+        "Bold text",
+        { it.boldTextEnabled },
+        backend::setBoldText,
+    )
+
+    fun setHighContrastText(enabled: Boolean) = runExperimentalToggle(
+        enabled,
+        "High contrast text",
+        { it.highContrastTextEnabled },
+        backend::setHighContrastText,
+    )
+
+    private fun runExperimentalToggle(
+        enabled: Boolean,
+        label: String,
+        readback: (ExperimentalDisplaySnapshot) -> Boolean?,
+        operation: (Boolean) -> BackendResult,
+    ) = runExperimentalOperation(
+        successMessage = "$label ${if (enabled) "on" else "off"}",
+        expectedDescription = "$label ${if (enabled) "on" else "off"}",
+        readback = readback,
+        expectedValue = enabled,
+    ) { operation(enabled) }
+
+    private fun <T> runExperimentalOperation(
+        successMessage: String,
+        expectedDescription: String,
+        readback: (ExperimentalDisplaySnapshot) -> T?,
+        expectedValue: T,
+        serializeWithColorOperations: Boolean = false,
+        operation: () -> BackendResult,
+    ) {
+        if (serializeWithColorOperations) nextColorOperationVersion()
+        scope.launch {
+            val operationVersion = experimentalOperationVersion.incrementAndGet()
+            _uiState.update {
+                it.copy(
+                    experimental = it.experimental.copy(busy = true),
+                    status = "Applying experimental setting",
+                )
+            }
+            val outcome = withContext(applyDispatcher) {
+                experimentalOperationMutex.withLock {
+                    if (serializeWithColorOperations) {
+                        colorOperationMutex.withLock {
+                            performExperimentalOperation(
+                                operation = operation,
+                                readback = readback,
+                                expectedValue = expectedValue,
+                                expectedDescription = expectedDescription,
+                            )
+                        }
+                    } else {
+                        performExperimentalOperation(
+                            operation = operation,
+                            readback = readback,
+                            expectedValue = expectedValue,
+                            expectedDescription = expectedDescription,
+                        )
+                    }
+                }
+            }
+            if (experimentalOperationVersion.get() != operationVersion) return@launch
+            _uiState.update {
+                it.copy(
+                    capabilities = outcome.capabilities,
+                    controlMode = outcome.capabilities.toControlMode(),
+                    experimental = it.experimental
+                        .withSnapshot(outcome.capabilities.experimentalSnapshot)
+                        .copy(busy = false),
+                    status = outcome.result.toStatusMessage(successMessage),
+                )
+            }
+        }
+    }
+
+    private suspend fun <T> performExperimentalOperation(
+        operation: () -> BackendResult,
+        readback: (ExperimentalDisplaySnapshot) -> T?,
+        expectedValue: T,
+        expectedDescription: String,
+    ): ExperimentalOperationOutcome {
+        val operationResult = operation()
+        if (operationResult !is BackendResult.Success) {
+            return ExperimentalOperationOutcome(operationResult, backend.getCapabilities())
+        }
+
+        var capabilities = backend.getCapabilities()
+        var matched = readback(capabilities.experimentalSnapshot) == expectedValue
+        var attempt = 0
+        while (!matched && attempt < experimentalReadbackAttempts) {
+            if (experimentalReadbackDelayMillis > 0) delay(experimentalReadbackDelayMillis)
+            capabilities = backend.getCapabilities()
+            matched = readback(capabilities.experimentalSnapshot) == expectedValue
+            attempt += 1
+        }
+        return ExperimentalOperationOutcome(
+            result = if (matched) {
+                BackendResult.Success
+            } else {
+                BackendResult.Failed("$expectedDescription readback did not match")
+            },
+            capabilities = capabilities,
+        )
     }
 
     fun switchToClassicSafeMode() {
@@ -423,10 +639,14 @@ class ColorControlViewModel(
         }
     }
 
-    private suspend fun applyProfileOperation(profile: ColorProfile, inverted: Boolean): BackendResult =
+    private suspend fun applyProfileOperation(
+        profile: ColorProfile,
+        inverted: Boolean,
+        saturation: Float = _uiState.value.experimental.saturation,
+    ): BackendResult =
         withContext(applyDispatcher) {
             colorOperationMutex.withLock {
-                backend.apply(profile.safeForUse(), inverted)
+                backend.apply(profile.safeForUse(), inverted, saturation)
             }
         }
 
@@ -438,7 +658,7 @@ class ColorControlViewModel(
                 if (state.controlMode != ControlMode.CustomMatrix || state.selected.safeForUse() != safeProfile) {
                     null
                 } else {
-                    backend.apply(safeProfile, state.inversionEnabled)
+                    backend.apply(safeProfile, state.inversionEnabled, state.experimental.saturation)
                 }
             }
         }
@@ -457,7 +677,11 @@ class ColorControlViewModel(
                 ) {
                     null
                 } else {
-                    backend.apply(state.selected.safeForUse(), state.inversionEnabled)
+                    backend.apply(
+                        state.selected.safeForUse(),
+                        state.inversionEnabled,
+                        state.experimental.saturation,
+                    )
                 }
             }
         }
@@ -503,6 +727,7 @@ class ColorControlViewModel(
                 autoBrightness = capabilities.displaySnapshot.autoBrightness ?: it.autoBrightness,
                 extraDimEnabled = capabilities.displaySnapshot.extraDimEnabled ?: it.extraDimEnabled,
                 extraDimStrength = capabilities.displaySnapshot.extraDimStrength ?: it.extraDimStrength,
+                experimental = it.experimental.withSnapshot(capabilities.experimentalSnapshot),
                 controlMode = when {
                     forceMode != null -> forceMode
                     keepMode -> it.controlMode
@@ -516,6 +741,8 @@ class ColorControlViewModel(
     private companion object {
         const val LIVE_APPLY_DELAY_MILLIS = 40L
         const val POST_INVERSION_REAPPLY_DELAY_MILLIS = 1_000L
+        const val EXPERIMENTAL_READBACK_DELAY_MILLIS = 120L
+        const val EXPERIMENTAL_READBACK_ATTEMPTS = 8
         val BRIGHTNESS_RANGE = 0f..1f
     }
 }
@@ -547,10 +774,19 @@ private data class LiveApplyRequest(
     val operationVersion: Long,
 )
 
+private data class ExperimentalOperationOutcome(
+    val result: BackendResult,
+    val capabilities: BackendCapabilities,
+)
+
+private fun ExperimentalUiState.withSnapshot(snapshot: ExperimentalDisplaySnapshot): ExperimentalUiState =
+    copy(snapshot = snapshot)
+
 private fun initialState(
     selected: ColorProfile,
     inversionEnabled: Boolean,
     capabilities: BackendCapabilities,
+    saturation: Float,
 ): ColorControlUiState =
     ColorControlUiState(
         selected = selected,
@@ -560,13 +796,19 @@ private fun initialState(
         autoBrightness = capabilities.displaySnapshot.autoBrightness ?: false,
         extraDimEnabled = capabilities.displaySnapshot.extraDimEnabled ?: false,
         extraDimStrength = capabilities.displaySnapshot.extraDimStrength ?: DEFAULT_EXTRA_DIM_STRENGTH,
+        experimental = ExperimentalUiState(
+            snapshot = capabilities.experimentalSnapshot,
+            saturation = saturation,
+        ),
         controlMode = capabilities.toControlMode(),
     )
 
 private const val DEFAULT_BRIGHTNESS = 1f
 private const val DEFAULT_EXTRA_DIM_STRENGTH = 0.5f
+private const val DEFAULT_SATURATION = 1f
 private const val CUSTOM_PROFILE_ID = "custom"
 private val EXTRA_DIM_STRENGTH_RANGE = 0f..1f
+private val SATURATION_RANGE = 0f..1f
 
 private fun ColorProfile.safeForUse(): ColorProfile =
     if (id == CUSTOM_PROFILE_ID) {
@@ -580,4 +822,11 @@ private fun BackendCapabilities.toControlMode(): ControlMode =
         ActivationState.Active -> ControlMode.CustomMatrix
         ActivationState.Inactive -> ControlMode.ClassicSafe
         ActivationState.Unknown -> ControlMode.External
+    }
+
+private fun BackendCapabilities.activeMatrixSaturation(profile: ColorProfile): Float? =
+    if (activationState == ActivationState.Active && modeSnapshot.matrixActive == 1) {
+        inferSaturationFromMatrix(profile, modeSnapshot.matrix)
+    } else {
+        null
     }

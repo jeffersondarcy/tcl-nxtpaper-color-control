@@ -5,6 +5,7 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -20,21 +21,27 @@ import androidx.compose.material.icons.filled.DragIndicator
 import androidx.compose.material.icons.filled.InvertColors
 import androidx.compose.material.icons.filled.Minimize
 import androidx.compose.material.icons.filled.OpenInFull
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconToggleButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,6 +63,7 @@ import com.jeff.tclcolorcontrol.color.ColorProfile
 import com.jeff.tclcolorcontrol.color.ColorProfiles
 import com.jeff.tclcolorcontrol.color.percentLabel
 import com.jeff.tclcolorcontrol.device.ActivationState
+import com.jeff.tclcolorcontrol.device.ScreenColorMode
 import com.jeff.tclcolorcontrol.device.TclModeSnapshot
 import com.jeff.tclcolorcontrol.state.ColorControlUiState
 import com.jeff.tclcolorcontrol.state.ControlMode
@@ -79,6 +87,14 @@ fun ColorControlScreen(
     onEnableCustom: () -> Unit,
     onSwitchClassic: () -> Unit,
     onRestore: () -> Unit,
+    onRefreshExperiments: () -> Unit,
+    onScreenColorModeChange: (ScreenColorMode) -> Unit,
+    onSaturationChange: (Float) -> Unit,
+    onSaturationFinished: () -> Unit,
+    onImageEnhancementChange: (Boolean) -> Unit,
+    onVideoEnhancementChange: (Boolean) -> Unit,
+    onBoldTextChange: (Boolean) -> Unit,
+    onHighContrastTextChange: (Boolean) -> Unit,
     isCollapsed: Boolean,
     onCollapsedChange: (Boolean) -> Unit,
     onMovePanel: (Float, Float) -> Unit,
@@ -88,6 +104,7 @@ fun ColorControlScreen(
     modifier: Modifier = Modifier,
 ) {
     var detailsExpanded by remember { mutableStateOf(false) }
+    var selectedTabIndex by rememberSaveable { mutableStateOf(0) }
 
     Surface(
         modifier = modifier
@@ -113,12 +130,7 @@ fun ColorControlScreen(
             return@Surface
         }
 
-        Column(
-            modifier = Modifier
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
+        Column(modifier = Modifier.padding(16.dp)) {
             Header(
                 selectedProfileLabel = state.selected.label,
                 onMovePanel = onMovePanel,
@@ -126,50 +138,276 @@ fun ColorControlScreen(
                 onMinimize = { onCollapsedChange(true) },
                 onDismiss = onDismiss,
             )
-            ModeControls(
-                mode = state.controlMode,
-                onEnableCustom = onEnableCustom,
-                onSwitchClassic = onSwitchClassic,
-            )
-            Presets(
-                presets = state.presets,
-                selected = state.selected,
-                enabled = state.controlsEnabled,
-                onSelectProfile = onSelectProfile,
-            )
-            ChannelSlider("Red", state.selected.red, ChannelRed, state.controlsEnabled, onRedChange, onSliderFinished)
-            ChannelSlider("Green", state.selected.green, ChannelGreen, state.controlsEnabled, onGreenChange, onSliderFinished)
-            ChannelSlider("Blue", state.selected.blue, ChannelBlue, state.controlsEnabled, onBlueChange, onSliderFinished)
-            DisplayControls(
-                inversionEnabled = state.inversionEnabled,
-                inversionControlEnabled = state.inversionControlEnabled,
-                autoBrightness = state.autoBrightness,
-                brightness = state.brightness,
-                extraDimEnabled = state.extraDimEnabled,
-                extraDimStrength = state.extraDimStrength,
-                canWriteSystemSettings = state.capabilities.canWriteSystemSettings,
-                brightnessControlsEnabled = state.brightnessControlsEnabled,
-                extraDimControlsEnabled = state.extraDimControlsEnabled,
-                extraDimStrengthControlsEnabled = state.extraDimStrengthControlsEnabled,
-                onInversionChange = onInversionChange,
-                onAutoBrightnessChange = onAutoBrightnessChange,
-                onBrightnessChange = onBrightnessChange,
-                onBrightnessFinished = onBrightnessFinished,
-                onExtraDimChange = onExtraDimChange,
-                onExtraDimStrengthChange = onExtraDimStrengthChange,
-                onExtraDimStrengthFinished = onExtraDimStrengthFinished,
-                onGrantSystemSettings = onGrantSystemSettings,
-            )
-            Actions(
-                onRestore = onRestore,
-            )
-            Details(
-                expanded = detailsExpanded,
-                onToggle = { detailsExpanded = !detailsExpanded },
-                state = state,
-            )
+            PrimaryTabRow(selectedTabIndex = selectedTabIndex) {
+                listOf("Controls", "Experiments").forEachIndexed { index, label ->
+                    Tab(
+                        selected = selectedTabIndex == index,
+                        onClick = {
+                            selectedTabIndex = index
+                            if (index == 1) onRefreshExperiments()
+                        },
+                        text = { Text(label) },
+                    )
+                }
+            }
+            if (selectedTabIndex == 0) {
+                ControlsTab(
+                    state = state,
+                    detailsExpanded = detailsExpanded,
+                    onDetailsToggle = { detailsExpanded = !detailsExpanded },
+                    onSelectProfile = onSelectProfile,
+                    onRedChange = onRedChange,
+                    onGreenChange = onGreenChange,
+                    onBlueChange = onBlueChange,
+                    onSliderFinished = onSliderFinished,
+                    onInversionChange = onInversionChange,
+                    onAutoBrightnessChange = onAutoBrightnessChange,
+                    onBrightnessChange = onBrightnessChange,
+                    onBrightnessFinished = onBrightnessFinished,
+                    onExtraDimChange = onExtraDimChange,
+                    onExtraDimStrengthChange = onExtraDimStrengthChange,
+                    onExtraDimStrengthFinished = onExtraDimStrengthFinished,
+                    onGrantSystemSettings = onGrantSystemSettings,
+                    onEnableCustom = onEnableCustom,
+                    onSwitchClassic = onSwitchClassic,
+                    onRestore = onRestore,
+                )
+            } else {
+                ExperimentsTab(
+                    state = state,
+                    onRefresh = onRefreshExperiments,
+                    onScreenColorModeChange = onScreenColorModeChange,
+                    onSaturationChange = onSaturationChange,
+                    onSaturationFinished = onSaturationFinished,
+                    onImageEnhancementChange = onImageEnhancementChange,
+                    onVideoEnhancementChange = onVideoEnhancementChange,
+                    onBoldTextChange = onBoldTextChange,
+                    onHighContrastTextChange = onHighContrastTextChange,
+                )
+            }
         }
     }
+}
+
+@Composable
+private fun ControlsTab(
+    state: ColorControlUiState,
+    detailsExpanded: Boolean,
+    onDetailsToggle: () -> Unit,
+    onSelectProfile: (ColorProfile) -> Unit,
+    onRedChange: (Float) -> Unit,
+    onGreenChange: (Float) -> Unit,
+    onBlueChange: (Float) -> Unit,
+    onSliderFinished: () -> Unit,
+    onInversionChange: (Boolean) -> Unit,
+    onAutoBrightnessChange: (Boolean) -> Unit,
+    onBrightnessChange: (Float) -> Unit,
+    onBrightnessFinished: () -> Unit,
+    onExtraDimChange: (Boolean) -> Unit,
+    onExtraDimStrengthChange: (Float) -> Unit,
+    onExtraDimStrengthFinished: () -> Unit,
+    onGrantSystemSettings: () -> Unit,
+    onEnableCustom: () -> Unit,
+    onSwitchClassic: () -> Unit,
+    onRestore: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .padding(top = 12.dp)
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        ModeControls(state.controlMode, onEnableCustom, onSwitchClassic)
+        Presets(state.presets, state.selected, state.controlsEnabled, onSelectProfile)
+        ChannelSlider("Red", state.selected.red, ChannelRed, state.controlsEnabled, onRedChange, onSliderFinished)
+        ChannelSlider("Green", state.selected.green, ChannelGreen, state.controlsEnabled, onGreenChange, onSliderFinished)
+        ChannelSlider("Blue", state.selected.blue, ChannelBlue, state.controlsEnabled, onBlueChange, onSliderFinished)
+        DisplayControls(
+            inversionEnabled = state.inversionEnabled,
+            inversionControlEnabled = state.inversionControlEnabled,
+            autoBrightness = state.autoBrightness,
+            brightness = state.brightness,
+            extraDimEnabled = state.extraDimEnabled,
+            extraDimStrength = state.extraDimStrength,
+            canWriteSystemSettings = state.capabilities.canWriteSystemSettings,
+            brightnessControlsEnabled = state.brightnessControlsEnabled,
+            extraDimControlsEnabled = state.extraDimControlsEnabled,
+            extraDimStrengthControlsEnabled = state.extraDimStrengthControlsEnabled,
+            onInversionChange = onInversionChange,
+            onAutoBrightnessChange = onAutoBrightnessChange,
+            onBrightnessChange = onBrightnessChange,
+            onBrightnessFinished = onBrightnessFinished,
+            onExtraDimChange = onExtraDimChange,
+            onExtraDimStrengthChange = onExtraDimStrengthChange,
+            onExtraDimStrengthFinished = onExtraDimStrengthFinished,
+            onGrantSystemSettings = onGrantSystemSettings,
+        )
+        Actions(onRestore)
+        Details(detailsExpanded, onDetailsToggle, state)
+    }
+}
+
+@Composable
+private fun ExperimentsTab(
+    state: ColorControlUiState,
+    onRefresh: () -> Unit,
+    onScreenColorModeChange: (ScreenColorMode) -> Unit,
+    onSaturationChange: (Float) -> Unit,
+    onSaturationFinished: () -> Unit,
+    onImageEnhancementChange: (Boolean) -> Unit,
+    onVideoEnhancementChange: (Boolean) -> Unit,
+    onBoldTextChange: (Boolean) -> Unit,
+    onHighContrastTextChange: (Boolean) -> Unit,
+) {
+    val experimental = state.experimental
+    val snapshot = experimental.snapshot
+    val binderEnabled = state.capabilities.binderAvailable && !experimental.busy
+    val secureEnabled = state.capabilities.canWriteSecureSettings && !experimental.busy
+    Column(
+        modifier = Modifier
+            .padding(top = 12.dp)
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Experimental display controls", fontWeight = FontWeight.SemiBold)
+                Text(
+                    "TCL modes can override one another.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            IconButton(onClick = onRefresh, enabled = !experimental.busy) {
+                Icon(Icons.Filled.Refresh, contentDescription = "Refresh experimental settings")
+            }
+        }
+
+        ExperimentSection("Display") {
+            ScreenColorMenu(
+                selected = snapshot.screenColorMode,
+                enabled = binderEnabled,
+                onSelected = onScreenColorModeChange,
+            )
+            LabeledSlider(
+                label = "Saturation",
+                valueLabel = experimental.saturation.percentLabel(),
+                value = experimental.saturation,
+                onValueChange = onSaturationChange,
+                onValueChangeFinished = onSaturationFinished,
+                valueRange = 0f..1f,
+                steps = 19,
+                enabled = binderEnabled,
+            )
+        }
+
+        ExperimentSection("NXTVISION") {
+            ExperimentalToggleRow("Image enhancement", snapshot.imageEnhancementEnabled, binderEnabled, onImageEnhancementChange)
+            ExperimentalToggleRow("Video enhancement", snapshot.videoEnhancementEnabled, binderEnabled, onVideoEnhancementChange)
+        }
+
+        ExperimentSection("Text & UI") {
+            ExperimentalToggleRow("Bold text", snapshot.boldTextEnabled, secureEnabled, onBoldTextChange)
+            ExperimentalToggleRow("High contrast text", snapshot.highContrastTextEnabled, secureEnabled, onHighContrastTextChange)
+            Text(
+                "Text controls may not affect PDF pages rendered as images.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        Text(state.status, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
+    }
+}
+
+@Composable
+private fun ExperimentSection(
+    title: String,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+        content()
+    }
+}
+
+@Composable
+private fun ScreenColorMenu(
+    selected: ScreenColorMode?,
+    enabled: Boolean,
+    onSelected: (ScreenColorMode) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text("Screen color", fontWeight = FontWeight.Medium)
+        Box(modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(
+                onClick = { expanded = true },
+                enabled = enabled,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(selected?.label ?: "Unknown")
+            }
+            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                ScreenColorMode.entries.forEach { mode ->
+                    DropdownMenuItem(
+                        text = { Text(mode.label) },
+                        onClick = {
+                            expanded = false
+                            onSelected(mode)
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LabeledSlider(
+    label: String,
+    valueLabel: String,
+    value: Float,
+    onValueChange: (Float) -> Unit,
+    onValueChangeFinished: () -> Unit,
+    valueRange: ClosedFloatingPointRange<Float>,
+    steps: Int,
+    enabled: Boolean,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(label, fontWeight = FontWeight.Medium)
+            Text(valueLabel, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Slider(
+            value = value,
+            onValueChange = onValueChange,
+            onValueChangeFinished = onValueChangeFinished,
+            valueRange = valueRange,
+            steps = steps,
+            enabled = enabled,
+            modifier = Modifier.fillMaxWidth().height(40.dp),
+        )
+    }
+}
+
+@Composable
+private fun ExperimentalToggleRow(
+    label: String,
+    checked: Boolean?,
+    enabled: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    ToggleRow(
+        label = if (checked == null) "$label (unknown)" else label,
+        checked = checked ?: false,
+        enabled = enabled,
+        onCheckedChange = onCheckedChange,
+    )
 }
 
 @Composable
@@ -638,6 +876,14 @@ private fun ColorControlScreenPreview() {
             onEnableCustom = {},
             onSwitchClassic = {},
             onRestore = {},
+            onRefreshExperiments = {},
+            onScreenColorModeChange = {},
+            onSaturationChange = {},
+            onSaturationFinished = {},
+            onImageEnhancementChange = {},
+            onVideoEnhancementChange = {},
+            onBoldTextChange = {},
+            onHighContrastTextChange = {},
             isCollapsed = false,
             onCollapsedChange = {},
             onMovePanel = { _, _ -> },

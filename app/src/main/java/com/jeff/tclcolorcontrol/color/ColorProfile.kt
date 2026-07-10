@@ -1,5 +1,6 @@
 package com.jeff.tclcolorcontrol.color
 
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 data class ColorProfile(
@@ -15,12 +16,20 @@ data class ColorProfile(
         require(blue in CHANNEL_RANGE) { "blue must be in 0.0..1.0" }
     }
 
-    fun toMatrix(): FloatArray = floatArrayOf(
-        red, 0f, 0f, 0f,
-        0f, green, 0f, 0f,
-        0f, 0f, blue, 0f,
-        0f, 0f, 0f, 1f,
-    )
+    fun toMatrix(saturation: Float = 1f): FloatArray {
+        val clampedSaturation = saturation.coerceIn(CHANNEL_RANGE)
+        val desaturation = 1f - clampedSaturation
+        val redLuminance = 0.231f * desaturation
+        val greenLuminance = 0.715f * desaturation
+        val blueLuminance = 0.072f * desaturation
+
+        return floatArrayOf(
+            red * (redLuminance + clampedSaturation), green * redLuminance, blue * redLuminance, 0f,
+            red * greenLuminance, green * (greenLuminance + clampedSaturation), blue * greenLuminance, 0f,
+            red * blueLuminance, green * blueLuminance, blue * (blueLuminance + clampedSaturation), 0f,
+            0f, 0f, 0f, 1f,
+        )
+    }
 
     companion object {
         val CHANNEL_RANGE = 0f..1f
@@ -60,6 +69,48 @@ object ColorProfiles {
 fun Float.clampChannel(): Float = coerceIn(0f, 1f)
 
 fun Float.percentLabel(): String = "${(this * 100f).roundToInt()}%"
+
+internal fun inferSaturationFromMatrix(
+    profile: ColorProfile,
+    serializedMatrix: String?,
+    tolerance: Float = 0.01f,
+): Float? {
+    val matrix = serializedMatrix?.toHexFloatMatrix() ?: return null
+    val candidates = buildList {
+        if (profile.red > INFERENCE_CHANNEL_EPSILON) {
+            add(((matrix[0] / profile.red) - 0.231f) / 0.769f)
+        }
+        if (profile.green > INFERENCE_CHANNEL_EPSILON) {
+            add(((matrix[5] / profile.green) - 0.715f) / 0.285f)
+        }
+        if (profile.blue > INFERENCE_CHANNEL_EPSILON) {
+            add(((matrix[10] / profile.blue) - 0.072f) / 0.928f)
+        }
+    }.filter { it.isFinite() && it in INFERENCE_RANGE }
+    if (candidates.isEmpty()) return null
+
+    val saturation = candidates.sorted()[candidates.size / 2].coerceIn(0f, 1f)
+    val reconstructed = profile.toMatrix(saturation)
+    return saturation.takeIf { inferred ->
+        inferred.isFinite() && matrix.indices.all { index ->
+            abs(matrix[index] - reconstructed[index]) <= tolerance
+        }
+    }
+}
+
+private fun String.toHexFloatMatrix(): FloatArray? {
+    val values = split(',')
+    if (values.size != MATRIX_ELEMENT_COUNT) return null
+    return runCatching {
+        FloatArray(values.size) { index ->
+            Float.fromBits(values[index].toLong(16).toInt())
+        }
+    }.getOrNull()
+}
+
+private const val MATRIX_ELEMENT_COUNT = 16
+private const val INFERENCE_CHANNEL_EPSILON = 0.001f
+private val INFERENCE_RANGE = -0.05f..1.05f
 
 private fun safeCustomProfile(red: Float, green: Float, blue: Float): ColorProfile {
     val channels = floatArrayOf(red.clampChannel(), green.clampChannel(), blue.clampChannel())

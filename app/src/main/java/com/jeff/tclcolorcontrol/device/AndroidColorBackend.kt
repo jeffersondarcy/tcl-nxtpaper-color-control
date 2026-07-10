@@ -23,6 +23,7 @@ class AndroidColorBackend(
             activationState = readActivationState(),
             modeSnapshot = readModeSnapshot(),
             displaySnapshot = readDisplaySnapshot(),
+            experimentalSnapshot = readExperimentalSnapshot(),
         )
 
     override fun readModeSnapshot(): TclModeSnapshot =
@@ -67,9 +68,28 @@ class AndroidColorBackend(
         )
     }
 
-    override fun apply(profile: ColorProfile, inverted: Boolean): BackendResult {
+    override fun readExperimentalSnapshot(): ExperimentalDisplaySnapshot {
+        val rawColorMode = getSystemInt(COLOR_MODE_VALUE)
+        val rawAdvancedColorMode = getSystemInt(ADVANCED_COLOR_MODE_VALUE)
+        val effectiveColorMode = if (rawColorMode in ADVANCED_COLOR_MODES) {
+            rawColorMode
+        } else {
+            rawColorMode ?: rawAdvancedColorMode
+        }
+        return ExperimentalDisplaySnapshot(
+            screenColorMode = ScreenColorMode.fromRaw(effectiveColorMode),
+            rawScreenColorMode = rawColorMode,
+            rawAdvancedColorMode = rawAdvancedColorMode,
+            imageEnhancementEnabled = getSystemBoolean(MULTIMEDIA_ENHANCEMENT_ENABLE),
+            videoEnhancementEnabled = getSystemBoolean(VIDEO_ENHANCEMENT_ENABLE),
+            boldTextEnabled = getSecureInt(FONT_WEIGHT_ADJUSTMENT)?.let { it > 0 } ?: false,
+            highContrastTextEnabled = getSecureBoolean(HIGH_TEXT_CONTRAST_ENABLED) ?: false,
+        )
+    }
+
+    override fun apply(profile: ColorProfile, inverted: Boolean, saturation: Float): BackendResult {
         val binder = findTclBinder() ?: return BackendResult.BinderUnavailable
-        val matrix = profile.toMatrix()
+        val matrix = profile.toMatrix(saturation)
 
         if (!canWriteSecureSettings()) {
             val matrixResult = binder.callSetSurfaceFlingerMatrix(matrix)
@@ -136,6 +156,29 @@ class AndroidColorBackend(
         return putSecureInt(REDUCE_BRIGHT_COLORS_LEVEL, value.toExtraDimLevel())
     }
 
+    override fun setScreenColorMode(mode: ScreenColorMode): BackendResult {
+        val binder = findTclBinder() ?: return BackendResult.BinderUnavailable
+        val colorResult = binder.callOneWayInt(TRANSACTION_SET_COLOR_MODE, mode.rawValue)
+        if (colorResult !is BackendResult.Success || !mode.isAdvanced) return colorResult
+        return binder.callOneWayInt(TRANSACTION_SET_ADVANCED_COLOR_MODE, mode.rawValue)
+    }
+
+    override fun setImageEnhancement(enabled: Boolean): BackendResult =
+        callTclBoolean(TRANSACTION_SET_IMAGE_ENHANCEMENT, enabled)
+
+    override fun setVideoEnhancement(enabled: Boolean): BackendResult =
+        callTclBoolean(TRANSACTION_SET_VIDEO_ENHANCEMENT, enabled)
+
+    override fun setBoldText(enabled: Boolean): BackendResult {
+        if (!canWriteSecureSettings()) return BackendResult.SecureSettingsPermissionMissing
+        return putSecureInt(FONT_WEIGHT_ADJUSTMENT, if (enabled) BOLD_TEXT_ADJUSTMENT else 0)
+    }
+
+    override fun setHighContrastText(enabled: Boolean): BackendResult {
+        if (!canWriteSecureSettings()) return BackendResult.SecureSettingsPermissionMissing
+        return putSecureInt(HIGH_TEXT_CONTRAST_ENABLED, if (enabled) 1 else 0)
+    }
+
     override fun restoreBaseline(): BackendResult {
         val binder = findTclBinder() ?: return BackendResult.BinderUnavailable
         val matrixResult = binder.callSetSurfaceFlingerMatrix(ColorProfiles.Baseline.toMatrix())
@@ -187,6 +230,32 @@ class AndroidColorBackend(
             BackendResult.Failed(error.message ?: error.javaClass.simpleName)
         } finally {
             reply.recycle()
+            data.recycle()
+        }
+    }
+
+    private fun callTclBoolean(transaction: Int, enabled: Boolean): BackendResult =
+        findTclBinder()?.callOneWayBoolean(transaction, enabled) ?: BackendResult.BinderUnavailable
+
+    private fun IBinder.callOneWayBoolean(transaction: Int, value: Boolean): BackendResult =
+        callOneWay(transaction) { writeBoolean(value) }
+
+    private fun IBinder.callOneWayInt(transaction: Int, value: Int): BackendResult =
+        callOneWay(transaction) { writeInt(value) }
+
+    private inline fun IBinder.callOneWay(transaction: Int, writeValue: Parcel.() -> Unit): BackendResult {
+        val data = Parcel.obtain()
+        return try {
+            data.writeInterfaceToken(TCL_NXTVISION_INTERFACE)
+            data.writeValue()
+            if (transact(transaction, data, null, IBinder.FLAG_ONEWAY)) {
+                BackendResult.Success
+            } else {
+                BackendResult.Failed("Binder transaction $transaction returned false")
+            }
+        } catch (error: Throwable) {
+            BackendResult.Failed(error.message ?: error.javaClass.simpleName)
+        } finally {
             data.recycle()
         }
     }
@@ -253,6 +322,9 @@ class AndroidColorBackend(
     private fun getSecureInt(name: String): Int? =
         getSecureString(name)?.toIntOrNull()
 
+    private fun getSecureBoolean(name: String): Boolean? =
+        getSecureInt(name)?.let { it != 0 }
+
     private fun getSystemString(name: String): String? =
         runCatching {
             Settings.System.getString(context.contentResolver, name)
@@ -261,10 +333,17 @@ class AndroidColorBackend(
     private fun getSystemInt(name: String): Int? =
         getSystemString(name)?.toIntOrNull()
 
+    private fun getSystemBoolean(name: String): Boolean? =
+        getSystemInt(name)?.let { it != 0 }
+
     private companion object {
         const val TCL_NXTVISION_SERVICE = "tct_nxtvision"
         const val TCL_NXTVISION_INTERFACE = "tct.nxtvision.ITctComponentNxtvisionManager"
         const val TRANSACTION_SET_SF_CLIENT_MATRIX = 12
+        const val TRANSACTION_SET_IMAGE_ENHANCEMENT = 22
+        const val TRANSACTION_SET_VIDEO_ENHANCEMENT = 23
+        const val TRANSACTION_SET_COLOR_MODE = 27
+        const val TRANSACTION_SET_ADVANCED_COLOR_MODE = 28
         const val MATRIX_SIZE = 16
         const val COLOR_DISPLAY_SERVICE = "color_display"
         const val ACTION_REDUCE_BRIGHT_COLORS_SETTINGS = "android.settings.REDUCE_BRIGHT_COLORS_SETTINGS"
@@ -279,6 +358,12 @@ class AndroidColorBackend(
         const val EYEPROTECT_PERSONALIZED_SET = "eyeprotect_persionalize_set"
         const val COLOR_MODE_VALUE = "color_mode_value"
         const val ADVANCED_COLOR_MODE_VALUE = "adv_color_mode_value"
+        const val MULTIMEDIA_ENHANCEMENT_ENABLE = "multimedia_enhancement_enable"
+        const val VIDEO_ENHANCEMENT_ENABLE = "video_enhancement_enable"
+        const val FONT_WEIGHT_ADJUSTMENT = "font_weight_adjustment"
+        const val HIGH_TEXT_CONTRAST_ENABLED = "high_text_contrast_enabled"
+        const val BOLD_TEXT_ADJUSTMENT = 300
+        val ADVANCED_COLOR_MODES = setOf(10, 11, 12)
     }
 }
 
