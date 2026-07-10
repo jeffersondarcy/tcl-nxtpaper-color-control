@@ -5,3 +5,21 @@ app/build/
 local.properties
 *.iml
 .DS_Store
+
+# Local device research and recovery material
+diagnostics/
+firmware/
+captures/
+.worktrees/
+*.log
+
+# Build and signing artifacts
+*.apk
+*.aab
+*.apks
+*.jks
+*.keystore
+keystore.properties
+signing.properties
+*.pem
+*.p12
