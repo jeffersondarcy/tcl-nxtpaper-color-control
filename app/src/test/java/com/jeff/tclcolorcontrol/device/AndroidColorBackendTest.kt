@@ -5,8 +5,8 @@ import org.junit.Test
 
 class AndroidColorBackendTest {
     @Test
-    fun brightnessSettingAllowsZero() {
-        assertEquals(0, 0f.toScreenBrightnessSetting())
+    fun brightnessEndpointMapsToMinimumWritableValue() {
+        assertEquals(1, 0f.toScreenBrightnessSetting())
     }
 
     @Test
@@ -17,8 +17,14 @@ class AndroidColorBackendTest {
 
     @Test
     fun brightnessSettingClampsOutOfRangeValues() {
-        assertEquals(0, (-0.5f).toScreenBrightnessSetting())
+        assertEquals(1, (-0.5f).toScreenBrightnessSetting())
         assertEquals(255, 1.5f.toScreenBrightnessSetting())
+    }
+
+    @Test
+    fun nearZeroBrightnessNeverWritesSpecialRawZero() {
+        assertEquals(1, (1f / 510f).toScreenBrightnessSetting())
+        assertEquals(1, (1f / 255f).toScreenBrightnessSetting())
     }
 
     @Test

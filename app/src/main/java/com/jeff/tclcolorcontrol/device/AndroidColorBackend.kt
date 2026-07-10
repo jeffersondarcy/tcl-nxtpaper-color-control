@@ -368,6 +368,7 @@ class AndroidColorBackend(
 }
 
 internal const val MIN_SCREEN_BRIGHTNESS_SETTING = 0
+internal const val MIN_WRITABLE_SCREEN_BRIGHTNESS_SETTING = 1
 internal const val MAX_SCREEN_BRIGHTNESS_SETTING = 255
 internal val SCREEN_BRIGHTNESS_RANGE = 0f..1f
 internal const val MIN_EXTRA_DIM_LEVEL = 0
@@ -377,7 +378,7 @@ internal val EXTRA_DIM_STRENGTH_RANGE = 0f..1f
 
 internal fun Float.toScreenBrightnessSetting(): Int =
     (coerceIn(SCREEN_BRIGHTNESS_RANGE) * MAX_SCREEN_BRIGHTNESS_SETTING).roundToInt()
-        .coerceIn(MIN_SCREEN_BRIGHTNESS_SETTING, MAX_SCREEN_BRIGHTNESS_SETTING)
+        .coerceIn(MIN_WRITABLE_SCREEN_BRIGHTNESS_SETTING, MAX_SCREEN_BRIGHTNESS_SETTING)
 
 internal fun Float.toExtraDimLevel(): Int =
     (coerceIn(EXTRA_DIM_STRENGTH_RANGE) * MAX_EXTRA_DIM_LEVEL).roundToInt()

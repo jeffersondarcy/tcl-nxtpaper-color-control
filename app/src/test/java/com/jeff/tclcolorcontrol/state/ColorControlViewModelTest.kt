@@ -2,6 +2,7 @@ package com.jeff.tclcolorcontrol.state
 
 import com.jeff.tclcolorcontrol.color.ColorProfile
 import com.jeff.tclcolorcontrol.color.ColorProfiles
+import com.jeff.tclcolorcontrol.color.percentLabel
 import com.jeff.tclcolorcontrol.device.ActivationState
 import com.jeff.tclcolorcontrol.device.BackendCapabilities
 import com.jeff.tclcolorcontrol.device.BackendResult
@@ -10,6 +11,7 @@ import com.jeff.tclcolorcontrol.device.DisplaySnapshot
 import com.jeff.tclcolorcontrol.device.ExperimentalDisplaySnapshot
 import com.jeff.tclcolorcontrol.device.ScreenColorMode
 import com.jeff.tclcolorcontrol.device.TclModeSnapshot
+import com.jeff.tclcolorcontrol.device.toScreenBrightnessSetting
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -722,6 +724,34 @@ class ColorControlViewModelTest {
     }
 
     @Test
+    fun largeBrightnessJumpToZeroIsSentAndKeepsSliderAtEndpoint() {
+        val backend = FakeBackend(
+            applyResult = BackendResult.Success,
+            capabilities = BackendCapabilities(
+                binderAvailable = true,
+                canWriteSecureSettings = true,
+                canWriteSystemSettings = true,
+                activationState = ActivationState.Active,
+                displaySnapshot = DisplaySnapshot(brightness = 1f, rawBrightness = 255, autoBrightness = false),
+            ),
+        )
+        val viewModel = ColorControlViewModel(
+            backend = backend,
+            profileStore = InMemoryProfileStore(),
+            liveApplyScope = testScope(),
+            applyDispatcher = Dispatchers.Unconfined,
+        )
+
+        viewModel.setBrightness(0f)
+        viewModel.finishBrightnessChange()
+
+        assertEquals(0f, backend.writtenBrightness)
+        assertEquals(1f / 255f, viewModel.uiState.value.brightness)
+        assertEquals("0%", viewModel.uiState.value.brightness.percentLabel())
+        assertEquals("Brightness updated", viewModel.uiState.value.status)
+    }
+
+    @Test
     fun autoBrightnessToggleCallsBackendAndUpdatesState() {
         val backend = FakeBackend(
             applyResult = BackendResult.Success,
@@ -1119,8 +1149,12 @@ class ColorControlViewModelTest {
 
         override fun setBrightness(value: Float): BackendResult {
             writtenBrightness = value
-            brightness = value
-            updateDisplaySnapshot(brightness = value)
+            val rawBrightness = value.toScreenBrightnessSetting()
+            brightness = rawBrightness.toFloat() / 255f
+            updateDisplaySnapshot(
+                brightness = brightness,
+                rawBrightness = rawBrightness,
+            )
             return systemSettingsResult
         }
 
@@ -1197,6 +1231,7 @@ class ColorControlViewModelTest {
 
         private fun updateDisplaySnapshot(
             brightness: Float? = capabilities.displaySnapshot.brightness,
+            rawBrightness: Int? = capabilities.displaySnapshot.rawBrightness,
             autoBrightness: Boolean? = capabilities.displaySnapshot.autoBrightness,
             colorInversionEnabled: Boolean? = capabilities.displaySnapshot.colorInversionEnabled,
             extraDimEnabled: Boolean? = capabilities.displaySnapshot.extraDimEnabled,
@@ -1205,6 +1240,7 @@ class ColorControlViewModelTest {
             capabilities = capabilities.copy(
                 displaySnapshot = capabilities.displaySnapshot.copy(
                     brightness = brightness,
+                    rawBrightness = rawBrightness,
                     autoBrightness = autoBrightness,
                     colorInversionEnabled = colorInversionEnabled,
                     extraDimEnabled = extraDimEnabled,
