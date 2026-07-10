@@ -89,6 +89,8 @@ effects may require reselecting the recorded NXTPAPER mode in system settings.
 ## Release Artifact
 
 Version `0.1.0` uses package ID `com.jeff.tclcolorcontrol`, `versionCode 1`, and
-debug signing. The debug APK is suitable for direct ADB installation, not store
-distribution. Publish its SHA-256 alongside the artifact and warn that moving to
-a different signing key may require uninstalling the debug build.
+debug signing. It is also debuggable and is suitable for direct ADB testing, not
+store or hardened production distribution. Publish its SHA-256 alongside the
+artifact. Different machines can use different debug keys, so even another
+locally built debug APK may require uninstalling the existing build and losing
+app preferences before installation.

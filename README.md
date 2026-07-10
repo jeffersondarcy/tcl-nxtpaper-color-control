@@ -66,9 +66,12 @@ On first launch, Android also asks for **Display over other apps**. Use
 **Grant brightness access** in the Controls tab to open **Modify system
 settings** when needed.
 
-The downloadable `v0.1.0` APK is debug-signed. A future APK signed with a
-different key may require uninstalling this build first, which clears app
-preferences.
+The downloadable `v0.1.0` APK is both debug-signed and debuggable. It is intended
+for direct testing, not as a hardened production build. A locally built debug
+APK may use a different debug key immediately, and any future APK signed with a
+different key cannot update this installation. Resolving
+`INSTALL_FAILED_UPDATE_INCOMPATIBLE` requires uninstalling the existing app,
+which clears app preferences.
 
 ## Permissions
 

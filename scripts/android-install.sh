@@ -6,7 +6,17 @@ cd "$(dirname "$0")/.."
 
 scripts/check-supported-device.sh
 ./gradlew :app:assembleDebug
-adb install -r app/build/outputs/apk/debug/app-debug.apk
+if install_output="$(adb install -r app/build/outputs/apk/debug/app-debug.apk 2>&1)"; then
+  printf '%s\n' "$install_output"
+else
+  install_status=$?
+  printf '%s\n' "$install_output" >&2
+  if grep -q 'INSTALL_FAILED_UPDATE_INCOMPATIBLE' <<<"$install_output"; then
+    echo "The installed APK uses a different signing key." >&2
+    echo "Uninstalling com.jeff.tclcolorcontrol allows installation but clears app preferences." >&2
+  fi
+  exit "$install_status"
+fi
 
 package=com.jeff.tclcolorcontrol
 permission=android.permission.WRITE_SECURE_SETTINGS

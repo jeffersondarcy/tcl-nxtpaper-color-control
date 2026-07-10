@@ -4,6 +4,7 @@ build/
 app/build/
 local.properties
 *.iml
+.idea/
 .DS_Store
 
 # Local device research and recovery material
@@ -19,7 +20,11 @@ captures/
 *.apks
 *.jks
 *.keystore
+*.pk8
+*.key
 keystore.properties
+key.properties
 signing.properties
+secrets.properties
 *.pem
 *.p12
