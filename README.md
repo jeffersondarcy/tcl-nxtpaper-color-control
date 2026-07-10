@@ -22,10 +22,58 @@ are otherwise scattered across the system UI.
 - Full-screen Android color inversion with the TCL matrix reapplied afterward.
 - Manual/automatic brightness and Extra Dim intensity controls.
 - Saturation folded into the same 4x4 compositor matrix as the RGB profile.
-- Six TCL Screen Color modes with dual-key readback for Advanced modes.
+- Six TCL Screen Color modes, including three Advanced variants.
 - TCL Image Enhancement and Video Enhancement toggles.
 - Android Bold Text and High Contrast Text toggles.
 - A focused baseline restore action and external 20-key snapshot/restore scripts.
+
+## Download APK
+
+- [Download `v0.1.0` debug APK](https://github.com/jeffersondarcy/tcl-nxtpaper-color-control/releases/download/v0.1.0/tcl-nxtpaper-color-control-v0.1.0-debug.apk)
+- [Download the SHA-256 checksum](https://github.com/jeffersondarcy/tcl-nxtpaper-color-control/releases/download/v0.1.0/tcl-nxtpaper-color-control-v0.1.0-debug.apk.sha256)
+- [Read the release notes](https://github.com/jeffersondarcy/tcl-nxtpaper-color-control/releases/tag/v0.1.0)
+
+Expected APK SHA-256:
+`d5c3068eaeb2629f8d8c5a76bb00ac6b4d66cab52e631b2ba8c35e0f3ea0e38e`.
+
+Before installing, enable USB debugging, authorize the computer, and confirm the
+connected tablet is model `9469X` on build `1RFO`:
+
+```bash
+adb shell getprop ro.product.model
+adb shell getprop ro.build.version.incremental
+```
+
+Then install the downloaded APK:
+
+```bash
+adb install -r tcl-nxtpaper-color-control-v0.1.0-debug.apk
+adb shell pm grant com.jeff.tclcolorcontrol android.permission.WRITE_SECURE_SETTINGS
+```
+
+The APK is debug-signed and debuggable. It is intended for direct testing, not
+as a hardened production build. A locally built APK may use a different debug
+key; resolving `INSTALL_FAILED_UPDATE_INCOMPATIBLE` requires uninstalling the
+existing app, which clears app preferences.
+
+## Open The Panel
+
+The most convenient entry point on the tested tablet is its configurable
+NXTPAPER hardware key:
+
+Launch **TCL Color Control** once and grant **Display over other apps**. This
+registers the app shortcut and allows its floating panel to appear.
+
+1. Open the NXTPAPER key configuration in TCL settings.
+2. Assign long press to the app shortcut **Open TCL Color** (shown as
+   **TCL Color** in compact lists).
+3. Long-press the key from a reader or any other app to open the floating panel
+   above the current screen.
+
+Alternatively, accept the first-launch prompt or add the **TCL Color** Quick
+Settings tile manually. Android may append it to the end of your active tiles,
+so open Quick Settings edit mode and drag it closer to the beginning for easier
+access.
 
 ## Compatibility
 
@@ -42,14 +90,10 @@ app requires the private `tct_nxtvision` service and firmware-specific Binder
 transactions, so installing successfully does not imply that controls will
 work. See [device compatibility](docs/device-compatibility.md).
 
-## Prerequisites
+## Build From Source
 
-- JDK 17
-- Android SDK Platform 36 and Android SDK Platform Tools
-- USB debugging enabled and this computer authorized for ADB
-- The tested tablet, for vendor-specific behavior
-
-## Build And Install
+Building requires JDK 17, Android SDK Platform 36, Android Platform Tools, USB
+debugging, and an authorized connection to the tablet.
 
 ```bash
 git clone https://github.com/jeffersondarcy/tcl-nxtpaper-color-control.git
@@ -65,13 +109,6 @@ grant. It refuses devices other than model `9469X` on build `1RFO` by default.
 On first launch, Android also asks for **Display over other apps**. Use
 **Grant brightness access** in the Controls tab to open **Modify system
 settings** when needed.
-
-The downloadable `v0.1.0` APK is both debug-signed and debuggable. It is intended
-for direct testing, not as a hardened production build. A locally built debug
-APK may use a different debug key immediately, and any future APK signed with a
-different key cannot update this installation. Resolving
-`INSTALL_FAILED_UPDATE_INCOMPATIBLE` requires uninstalling the existing app,
-which clears app preferences.
 
 ## Permissions
 
@@ -99,9 +136,6 @@ permissions.
 
 ## Important Limitations
 
-- Standard screenshots and screen recordings are captured before the final TCL
-  SurfaceFlinger transform, so they cannot prove the visible RGB/saturation
-  result.
 - Bold Text and High Contrast Text affect Android-rendered UI. They usually do
   not change PDF pages that a reader has already rasterized into images.
 - Image and Video Enhancement may apply only to apps or media pipelines selected

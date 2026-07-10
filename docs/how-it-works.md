@@ -36,11 +36,11 @@ independent post-processing stages. This avoids relying on Android's generic
 saturation service, which did not provide the required final pipeline control
 on the tested firmware.
 
-The app persists the last successfully applied profile and saturation. During a
-one-time migration it can infer saturation from TCL's stored 16-element hex
-float matrix, but accepts the inference only if reconstructing the matrix matches
-within `0.01`. Unknown matrices fall back to 100% without rewriting the current
-compositor.
+The app persists the selected profile. Saturation replaces its stored value only
+after a successful apply. During a one-time migration it can infer saturation
+from TCL's stored 16-element hex float matrix, but accepts the inference only if
+reconstructing the matrix matches within `0.01`. Unknown matrices fall back to
+100% without rewriting the current compositor.
 
 ## Inversion Ordering
 
@@ -81,10 +81,9 @@ scripts/android-verify-color.sh
 adb shell dumpsys SurfaceFlinger | grep -A2 -B2 colorTransformMatrix
 ```
 
-Visual inspection on the physical panel remains necessary. Android's standard
-screenshot and screen-recording paths capture content before the final
-SurfaceFlinger/TCL panel transform, so their pixels may remain unchanged even
-when the display visibly changes.
+Visual inspection on the physical panel remains necessary. On the tested
+firmware, standard Android captures do not include the final TCL transform, so
+use SurfaceFlinger readback rather than captured pixels to verify the matrix.
 
 Use `scripts/snapshot-color-state.sh` before experiments. Its paired restore
 script validates a complete snapshot and exact device identity before applying

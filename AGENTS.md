@@ -51,8 +51,7 @@ Source `scripts/android-env.sh`, then run:
 Run shell syntax checks for every script. Generic UI can be checked on an
 emulator, but TCL color behavior must be tested on the physical tablet. Confirm
 matrix behavior with both visual inspection and SurfaceFlinger readback as
-described in `docs/how-it-works.md`. Standard Android screenshots do not capture
-the final TCL compositor transform.
+described in `docs/how-it-works.md`.
 
 ## Scope
 

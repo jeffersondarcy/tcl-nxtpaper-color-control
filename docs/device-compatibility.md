@@ -31,15 +31,9 @@ firmware modification was used.
 | High Contrast Text | Working for eligible Android UI text. |
 | Image / Video Enhancement | Binder calls and setting readback work; visible scope appears content/app dependent. |
 
-## Mechanisms Not Exposed
-
-Device experiments also examined Gamma, Darker Display, Reading Mode, Sunlight
-Readability, Color Contrast, and extra NXTPAPER mode controls. Gamma and Darker
-Display did not advertise the required TCL feature support on this firmware;
-other controls were either ineffective for the target reading workflow,
-duplicated OEM UI, or did not retain the requested value. They were removed from
-the app rather than presenting switches that appeared to succeed without a
-reliable effect.
+Gamma, Darker Display, Reading Mode, Sunlight Readability, Color Contrast, and
+additional NXTPAPER modes are not exposed because testing found no reliable,
+distinct effect for this app's reading workflow.
 
 ## PDF And Text Rendering
 
@@ -54,13 +48,6 @@ Light text on a dark background can still feel less sharp than dark text on a
 light background because of display flare, pupil dilation, font weight, and the
 way antialiasing was computed before inversion. This app can alter the final
 colors but cannot rerender glyph outlines inside an already rasterized PDF.
-
-## Capture Limitation
-
-Standard screenshots and screen recordings do not include the final TCL
-compositor/panel transform on this build. They are suitable for documenting the
-app UI, but not for comparing visible matrix strength or color accuracy. Use
-physical-panel inspection and SurfaceFlinger readback together.
 
 ## Other Devices And Updates
 
