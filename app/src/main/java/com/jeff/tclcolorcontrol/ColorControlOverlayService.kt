@@ -71,12 +71,8 @@ class ColorControlOverlayService : LifecycleService(), SavedStateRegistryOwner {
             ACTION_SHOW_EXPANDED -> {
                 showOverlay()
                 setPanelCollapsed(false)
-                handleColorIntent(intent)
             }
-            else -> {
-                showOverlay()
-                handleColorIntent(intent)
-            }
+            else -> showOverlay()
         }
         return Service.START_STICKY
     }
@@ -208,20 +204,6 @@ class ColorControlOverlayService : LifecycleService(), SavedStateRegistryOwner {
             .build()
     }
 
-    private fun handleColorIntent(intent: Intent?) {
-        if (intent == null) return
-        if (intent.getBooleanExtra(ColorControlActivity.EXTRA_RESTORE, false)) {
-            viewModel.restoreBaseline()
-            return
-        }
-        val profileId = intent.getStringExtra(ColorControlActivity.EXTRA_PROFILE) ?: return
-        if (intent.getBooleanExtra(ColorControlActivity.EXTRA_APPLY, false)) {
-            viewModel.applyProfileId(profileId)
-        } else {
-            viewModel.selectProfileId(profileId)
-        }
-    }
-
     private fun openWriteSettingsPanel() {
         startActivity(
             Intent(
@@ -344,25 +326,8 @@ class ColorControlOverlayService : LifecycleService(), SavedStateRegistryOwner {
         private const val KEY_PANEL_X_PX = "x_px"
         private const val KEY_PANEL_Y_PX = "y_px"
 
-        fun showExpandedIntent(context: Context, sourceIntent: Intent? = null): Intent =
+        fun showExpandedIntent(context: Context): Intent =
             Intent(context, ColorControlOverlayService::class.java)
                 .setAction(ACTION_SHOW_EXPANDED)
-                .copyColorExtrasFrom(sourceIntent)
     }
-}
-
-private fun Intent.copyColorExtrasFrom(sourceIntent: Intent?): Intent {
-    if (sourceIntent == null) return this
-    sourceIntent.getStringExtra(ColorControlActivity.EXTRA_PROFILE)?.let {
-        putExtra(ColorControlActivity.EXTRA_PROFILE, it)
-    }
-    putExtra(
-        ColorControlActivity.EXTRA_APPLY,
-        sourceIntent.getBooleanExtra(ColorControlActivity.EXTRA_APPLY, false),
-    )
-    putExtra(
-        ColorControlActivity.EXTRA_RESTORE,
-        sourceIntent.getBooleanExtra(ColorControlActivity.EXTRA_RESTORE, false),
-    )
-    return this
 }

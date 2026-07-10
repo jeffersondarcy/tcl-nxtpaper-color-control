@@ -54,7 +54,7 @@ class ColorControlActivity : ComponentActivity() {
 
     private fun showOverlayAfterOptionalTilePrompt(intent: Intent?) {
         if (!shouldAutoPromptForTile(intent)) {
-            showOverlay(intent)
+            showOverlay()
             return
         }
         tilePromptInProgress = true
@@ -62,7 +62,7 @@ class ColorControlActivity : ComponentActivity() {
             QuickSettingsTilePrompt.markAutoPrompted(this)
             tilePromptInProgress = false
             if (!isFinishing && !isDestroyed) {
-                showOverlay(intent)
+                showOverlay()
             }
         }
     }
@@ -73,8 +73,8 @@ class ColorControlActivity : ComponentActivity() {
             !QuickSettingsTilePrompt.isKnownAdded(this) &&
             !QuickSettingsTilePrompt.wasAutoPrompted(this)
 
-    private fun showOverlay(intent: Intent?) {
-        val serviceIntent = ColorControlOverlayService.showExpandedIntent(this, intent)
+    private fun showOverlay() {
+        val serviceIntent = ColorControlOverlayService.showExpandedIntent(this)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(serviceIntent)
         } else {
@@ -101,9 +101,6 @@ class ColorControlActivity : ComponentActivity() {
 
     companion object {
         const val ACTION_OPEN_PANEL = "com.jeff.tclcolorcontrol.action.OPEN_PANEL"
-        const val EXTRA_PROFILE = "profile"
-        const val EXTRA_APPLY = "apply"
-        const val EXTRA_RESTORE = "restore"
         const val EXTRA_FROM_TILE = "from_tile"
     }
 }
